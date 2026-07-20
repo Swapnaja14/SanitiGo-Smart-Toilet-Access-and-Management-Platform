@@ -11,3 +11,284 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum UserRole {
+  USER
+  OWNER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum SessionStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  UPI
+  NET_BANKING
+  WALLET
+  CASH
+}
+
+enum ComplaintStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+}
+
+enum WeekDay {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum ComplaintCategory {
+  CLEANLINESS
+  PLUMBING
+  ELECTRICITY
+  LOCK
+  WATER
+  OTHER
+}
+
+enum AmenityCategory {
+  ACCESSIBILITY
+  HYGIENE
+  FAMILY
+  UTILITIES
+  SAFETY
+  TRANSPORTATION
+  OTHER
+}
+
+model User {
+  id String @id @default(cuid())
+  name String
+  email String @unique
+  password String
+  phoneNumber String?
+  profileImage String?
+  role UserRole @default(USER)
+  isVerified Boolean @default(false)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastLogin DateTime?
+
+  // Relations
+  toilets Toilet[]
+  bookings Booking[]
+  sessions UsageSession[]
+  reviews Review[]
+  favorites Favorite[]
+  complaints Complaint[]
+}
+
+model Toilet {
+  id String @id @default(cuid())
+  ownerId String
+  name String
+  description String?
+  address String
+  city String
+  state String
+  country String
+  postalCode String
+  latitude Float
+  longitude Float
+  price Decimal @db.Decimal(10,2)
+  averageRating Float @default(0)
+  totalReviews Int @default(0)
+  isVerified Boolean @default(false)
+  isAvailable Boolean @default(true)
+  qrToken String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  capacity Int @default(1) // Number of stalls
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  operatingHours OperatingHours[]
+  bookings Booking[]
+  sessions UsageSession[]
+  reviews Review[]
+  favorites Favorite[]
+  complaints Complaint[]
+  images ToiletImage[]
+  amenities ToiletAmenity[]
+  @@index([ownerId])
+  @@index([city])
+  @@index([latitude, longitude])
+  @@index([isAvailable])
+}
+
+model OperatingHours {
+  id String @id @default(cuid())
+  toiletId String
+  day WeekDay
+  openingTime String
+  closingTime String
+  isClosed Boolean @default(false)
+  toilet Toilet @relation(fields: [toiletId], references: [id], onDelete: Cascade)
+  @@unique([toiletId, day])
+  @@index([toiletId])
+}
+
+model Booking {
+  id String @id @default(cuid())
+  userId String
+  toiletId String
+  scheduledDate DateTime
+  startTime DateTime
+  endTime DateTime
+  status BookingStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toilet Toilet @relation(fields: [toiletId], references: [id], onDelete: Cascade)
+  sessions UsageSession[]
+
+  @@index([userId])
+  @@index([toiletId])
+  @@index([scheduledDate])
+  @@index([status])
+}
+
+model UsageSession {
+  id String @id @default(cuid())
+  userId String
+  toiletId String
+  bookingId String?
+  startedAt DateTime
+  endedAt DateTime?
+  duration Int?
+  status SessionStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toilet Toilet @relation(fields: [toiletId], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  payment Payment?
+  reviews Review[]
+
+  @@index([userId])
+  @@index([toiletId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model Payment {
+  id String @id @default(cuid())
+  sessionId String @unique
+  amount Decimal @db.Decimal(10,2)
+  currency String @default("INR")
+  paymentMethod PaymentMethod
+  paymentStatus PaymentStatus @default(PENDING)
+  transactionId String? @unique
+  paidAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  // Relations
+  session UsageSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@index([paymentStatus])
+}
+
+model Review {
+  id String @id @default(cuid())
+  userId String
+  toiletId String
+  sessionId String?
+  rating Int
+  comment String?
+  createdAt DateTime @default(now())
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toilet Toilet @relation(fields: [toiletId], references: [id], onDelete: Cascade)
+  session UsageSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  @@unique([userId, toiletId])
+  @@index([userId])
+  @@index([toiletId])
+  @@index([rating])
+  @@index([sessionId])
+}
+
+model Favorite {
+  userId String
+  toiletId String
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toilet Toilet @relation(fields: [toiletId], references: [id], onDelete: Cascade)
+  
+  @@id([userId, toiletId])
+  @@index([toiletId])
+}
+
+
+model Complaint {
+  id String @id @default(cuid())
+  userId String
+  toiletId String
+  category ComplaintCategory
+  title String
+  description String
+  status ComplaintStatus @default(OPEN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  resolvedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toilet Toilet @relation(fields: [toiletId], references: [id], onDelete: Cascade)
+  @@index([status])
+  @@index([toiletId])
+  @@index([userId])
+}
+
+model Amenity {
+  id String @id @default(cuid())
+  name String @unique
+  category AmenityCategory
+  icon String?
+  createdAt DateTime @default(now())
+  toilets ToiletAmenity[]
+}
+
+model ToiletAmenity {
+  toiletId String
+  amenityId String  
+  toilet Toilet @relation(fields: [toiletId], references: [id], onDelete: Cascade)
+  amenity Amenity @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+  @@id([toiletId, amenityId])
+  @@index([amenityId])
+}
+
+model ToiletImage {
+  id String @id @default(cuid())
+  toiletId String
+  imageUrl String
+  publicId String
+  isPrimary Boolean @default(false)
+  createdAt DateTime @default(now())
+  displayOrder Int @default(0)
+  toilet Toilet @relation(fields: [toiletId], references: [id], onDelete: Cascade)
+  @@index([toiletId])
+}
