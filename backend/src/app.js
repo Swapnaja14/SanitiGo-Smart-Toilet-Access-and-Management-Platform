@@ -2,6 +2,11 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import logger from './config/logger.js';
+import swaggerUi from "swagger-ui-express";
+import swaggerSpec from "./docs/swagger.js";
+import errorHandler from "../middleware/errorHandler.js";
+import notFound from "../middleware/notFound.js";
 
 const app = express();
 app.use(cors());
@@ -9,7 +14,16 @@ app.use(helmet());
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 
-app.use(morgan("dev"))
+// app.use(morgan("dev"))
+
+app.use(
+    morgan("combined", {
+        stream: {
+            write: (message) => logger.http(message.trim()),
+        },
+    })
+);
+
 
 app.get("/", (req, res) => {
     res.status(200).json({
@@ -17,5 +31,14 @@ app.get("/", (req, res) => {
         message: "SanitiGo Backend Running"
     });
 });
+
+app.use(
+    "/api-docs",
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec)
+);
+
+app.use(notFound);
+app.use(errorHandler);
 
 export default app;
