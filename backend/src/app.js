@@ -7,12 +7,15 @@ import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./docs/swagger.js";
 import errorHandler from "../middleware/errorHandler.js";
 import notFound from "../middleware/notFound.js";
+import cookieParser from "cookie-parser";
+import authRoutes from "../routes/auth.routes.js";
 
 const app = express();
 app.use(cors());
 app.use(helmet());
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
+app.use(cookieParser());
 
 // app.use(morgan("dev"))
 
@@ -37,6 +40,8 @@ app.use(
     swaggerUi.serve,
     swaggerUi.setup(swaggerSpec)
 );
+
+app.use("/api/v1/auth", authRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
