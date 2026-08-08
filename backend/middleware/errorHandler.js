@@ -1,18 +1,13 @@
-import logger from "../src/config/logger";
+import logger from "../src/config/logger.js";
 
 const errorHandler = (err, req, res, next) => {
-    let statusCode = err.statusCode || 500;
-    let message = err.message || "Internal Server Error";
-    logger.error(err);
-    const response = {
+    const statusCode = err.status_code || 500;
+
+    res.status(statusCode).json({
         success: false,
-        message,
-    };
-
-    if (process.env.NODE_ENV != "production") {
-        response.stack = err.stack;
-    }
-
-    res.status(statusCode).json(response);
+        message: err.message || "Internal Server Error",
+        errors: err.errors || [],
+    });
 };
+
 export default errorHandler;

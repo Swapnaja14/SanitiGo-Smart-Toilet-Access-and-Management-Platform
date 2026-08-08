@@ -1,8 +1,12 @@
 node_modules/
 .env
+.env.test
 logs/
 uploads/
 coverage/
 /src/generated/
 query
 migrations/
+temp.js
+temp/
+tests
