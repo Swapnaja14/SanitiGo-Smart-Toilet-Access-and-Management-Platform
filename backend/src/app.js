@@ -9,6 +9,8 @@ import errorHandler from "../middleware/errorHandler.js";
 import notFound from "../middleware/notFound.js";
 import cookieParser from "cookie-parser";
 import authRoutes from "../routes/auth.routes.js";
+import toiletRoutes from "../routes/toilet.routes.js";
+
 
 const app = express();
 app.use(cors());
@@ -42,6 +44,7 @@ app.use(
 );
 
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/toilets", toiletRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
