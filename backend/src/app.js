@@ -10,6 +10,7 @@ import notFound from "../middleware/notFound.js";
 import cookieParser from "cookie-parser";
 import authRoutes from "../routes/auth.routes.js";
 import toiletRoutes from "../routes/toilet.routes.js";
+import favoriteRoutes from "../routes/favorite.routes.js";
 
 
 const app = express();
@@ -45,8 +46,9 @@ app.use(
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/toilets", toiletRoutes);
+app.use("/api/v1/favorites", favoriteRoutes);
 
 app.use(notFound);
-app.use(errorHandler);
+app.use(errorHandler);  
 
 export default app;

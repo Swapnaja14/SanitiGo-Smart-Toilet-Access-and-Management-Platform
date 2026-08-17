@@ -61,3 +61,39 @@ export const createToiletSchema = z.object({
 });
 
 export const updateToiletSchema = createToiletSchema.partial();
+
+
+export const operatingHoursSchema = z.object({
+        operatingHours: z
+                .array(
+                        z.object({
+                                day: z.enum([
+                                        "MONDAY",
+                                        "TUESDAY",
+                                        "WEDNESDAY",
+                                        "THURSDAY",
+                                        "FRIDAY",
+                                        "SATURDAY",
+                                        "SUNDAY",
+                                ]),
+
+                                openingTime: z
+                                        .string()
+                                        .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Opening time must be in HH:mm format"),
+
+                                closingTime: z
+                                        .string()
+                                        .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Closing time must be in HH:mm format"),
+
+                                isClosed: z.boolean().default(false),
+                        })
+                )
+                .length(7, "Operating hours must contain all 7 days"),
+});
+
+
+export const updateAmentitiesSchema = z.object({
+        amenityIds: z
+                .array(z.string().min(1))
+                .max(20, "A toilet can have at most 20 amenities"),
+});

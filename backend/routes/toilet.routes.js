@@ -11,11 +11,15 @@ import {
     updateToilet,
     deleteToilet,
     uploadToiletImages,
+    searchToilets,
+    getNearbyToilets,
+    updateOperatingHours,
+    updateAmenties,
 } from "../src/controllers/toilet.controller.js";
 
 import upload from '../middleware/upload.middleware.js';
 
-import { createToiletSchema, updateToiletSchema } from '../validations/toilet.validation.js';
+import { createToiletSchema, operatingHoursSchema, updateAmentitiesSchema, updateToiletSchema } from '../validations/toilet.validation.js';
 
 const router = express.Router();
 
@@ -30,6 +34,32 @@ router.get("/owner",
     authenticate,
     authorize("OWNER"),
     getOwnerToilets
+);
+
+router.get("/search",
+    authenticate,
+    searchToilets
+);
+
+router.get("/nearby",
+    authenticate,
+    getNearbyToilets
+);
+
+router.put(
+    "/:toiletId/operating-hours",
+    authenticate,
+    authorize("OWNER"),
+    validate(operatingHoursSchema),
+    updateOperatingHours
+);
+
+router.put(
+    "/:toiletId/amenities",
+    authenticate,
+    authorize("OWNER"),
+    validate(updateAmentitiesSchema),
+    updateAmenties
 );
 
 router.get("/:toiletId",

@@ -10,3 +10,4 @@ migrations/
 temp.js
 temp/
 tests
+prisma/seed.js   
