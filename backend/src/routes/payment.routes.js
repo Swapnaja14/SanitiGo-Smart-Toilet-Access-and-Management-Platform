@@ -33,6 +33,12 @@ router.post(
   simulatePaymentResult
 );
 
+router.post(
+  "/:bookingId/payments/mock-result",
+  validate(mockPaymentResultSchema),
+  simulatePaymentResult
+);
+
 router.get(
   "/:bookingId/payment",
   getPaymentStatus

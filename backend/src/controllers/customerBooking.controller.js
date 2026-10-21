@@ -36,10 +36,16 @@ export const getMyBookings = async (req, res, next) => {
       );
     }
 
+    const status =
+      typeof req.query.status === "string"
+        ? req.query.status.toUpperCase()
+        : undefined;
+
     const result = await getMyBookingsService(
       userId,
       page,
-      limit
+      limit,
+      status
     );
 
     return res.status(200).json({

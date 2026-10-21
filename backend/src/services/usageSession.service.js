@@ -39,11 +39,9 @@ export const startUsageSession = async (ownerId, token) => {
               },
             },
             sessions: {
-              where: {
-                status: "ACTIVE",
-              },
               select: {
                 id: true,
+                status: true,
               },
             },
           },
@@ -87,7 +85,7 @@ export const startUsageSession = async (ownerId, token) => {
         if (booking.sessions.length > 0) {
           throw new ApiError(
             409,
-            "An active usage session already exists for this booking."
+            "A usage session already exists for this booking."
           );
         }
 

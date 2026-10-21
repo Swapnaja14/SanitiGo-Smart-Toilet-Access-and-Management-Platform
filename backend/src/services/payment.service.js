@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import crypto from "crypto";
 
@@ -114,102 +115,126 @@ export const simulatePaymentResult = async (
     );
   }
 
-  return prisma.$transaction(async (tx) => {
-    const booking = await getCustomerBooking(
-      tx,
-      bookingId,
-      userId
-    );
+  try {
+    return await prisma.$transaction(
+      async (tx) => {
+        const booking = await getCustomerBooking(
+          tx,
+          bookingId,
+          userId
+        );
 
-    const payment = booking.payment;
+        if (booking.endTime <= new Date()) {
+          throw new ApiError(
+            409,
+            "This booking's access window has expired. Payment cannot confirm the booking."
+          );
+        }
 
-    if (!payment) {
-      throw new ApiError(
-        404,
-        "No payment exists for this booking."
-      );
-    }
+        const payment = booking.payment;
 
-    if (payment.paymentStatus === "SUCCESS") {
-      if (outcome === "SUCCESS") {
-        return {
-          payment,
-          bookingStatus: booking.status,
-          booking,
-        };
-      }
+        if (!payment) {
+          throw new ApiError(
+            404,
+            "No payment exists for this booking."
+          );
+        }
 
-      throw new ApiError(
-        409,
-        "A successful payment cannot be changed to failed."
-      );
-    }
+        if (payment.paymentStatus === "SUCCESS") {
+          if (outcome === "SUCCESS") {
+            return {
+              payment,
+              bookingStatus: booking.status,
+              booking,
+            };
+          }
 
-    if (payment.paymentStatus !== "PENDING") {
-      throw new ApiError(
-        409,
-        "No pending payment is available to process."
-      );
-    }
+          throw new ApiError(
+            409,
+            "A successful payment cannot be changed to failed."
+          );
+        }
 
-    if (booking.status !== "PENDING") {
-      throw new ApiError(
-        409,
-        "Booking is not eligible for payment processing."
-      );
-    }
+        if (payment.paymentStatus !== "PENDING") {
+          throw new ApiError(
+            409,
+            "No pending payment is available to process."
+          );
+        }
 
-    if (outcome === "FAILED") {
-      const updatedPayment = await tx.payment.update({
-        where: { id: payment.id },
-        data: {
-          paymentStatus: "FAILED",
-          transactionId: null,
-          paidAt: null,
-        },
-      });
+        if (booking.status !== "PENDING") {
+          throw new ApiError(
+            409,
+            "Booking is not eligible for payment processing."
+          );
+        }
 
-      return {
-        payment: updatedPayment,
-        bookingStatus: booking.status,
-        booking,
-      };
-    }
+        if (outcome === "FAILED") {
+          const updatedPayment = await tx.payment.update({
+            where: { id: payment.id },
+            data: {
+              paymentStatus: "FAILED",
+              transactionId: null,
+              paidAt: null,
+            },
+          });
 
-    const updatedPayment = await tx.payment.update({
-      where: { id: payment.id },
-      data: {
-        paymentStatus: "SUCCESS",
-        transactionId: `MOCK-${randomUUID()}`,
-        paidAt: new Date(),
-      },
-    });
+          return {
+            payment: updatedPayment,
+            bookingStatus: booking.status,
+            booking,
+          };
+        }
 
-    const updatedBooking = await tx.booking.update({
-      where: { id: booking.id },
-      data: {
-        status: "CONFIRMED",
-      },
-      include: {
-        toilet: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            city: true,
-            state: true,
-            price: true,
+        const updatedPayment = await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            paymentStatus: "SUCCESS",
+            transactionId: `MOCK-${randomUUID()}`,
+            paidAt: new Date(),
           },
-        },
-      },
-    });
+        });
 
-    return {
-      payment: updatedPayment,
-      bookingStatus: updatedBooking.status,
-      booking: updatedBooking,
-    };
-  });
+        const updatedBooking = await tx.booking.update({
+          where: { id: booking.id },
+          data: {
+            status: "CONFIRMED",
+          },
+          include: {
+            toilet: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                city: true,
+                state: true,
+                price: true,
+              },
+            },
+          },
+        });
+
+        return {
+          payment: updatedPayment,
+          bookingStatus: updatedBooking.status,
+          booking: updatedBooking,
+        };
+      },
+      {
+        isolationLevel:
+          Prisma.TransactionIsolationLevel.Serializable,
+      }
+    );
+  } catch (error) {
+    if (error?.code === "P2034") {
+      throw new ApiError(
+        409,
+        "A concurrent request changed this payment. Please check its status and try again."
+      );
+    }
+
+    throw error;
+  }
 };
 
 export const getPaymentStatus = async (

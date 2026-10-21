@@ -24,16 +24,41 @@ const getOwnedBooking = async (tx, bookingId, userId) => {
   return booking;
 };
 
+const ALLOWED_BOOKING_STATUSES = [
+  "PENDING",
+  "CONFIRMED",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "CANCELLED",
+  "EXPIRED",
+];
+
 export const getMyBookings = async (
   userId,
   page = 1,
-  limit = 10
+  limit = 10,
+  status
 ) => {
+  if (
+    status &&
+    !ALLOWED_BOOKING_STATUSES.includes(status)
+  ) {
+    throw new ApiError(
+      400,
+      "Invalid booking status filter."
+    );
+  }
+
+  const where = {
+    userId,
+    ...(status ? { status } : {}),
+  };
+
   const skip = (page - 1) * limit;
 
   const [bookings, total] = await prisma.$transaction([
     prisma.booking.findMany({
-      where: { userId },
+      where,
       orderBy: {
         createdAt: "desc",
       },
@@ -69,7 +94,7 @@ export const getMyBookings = async (
       },
     }),
     prisma.booking.count({
-      where: { userId },
+      where,
     }),
   ]);
 
