@@ -14,6 +14,7 @@ import favoriteRoutes from "../routes/favorite.routes.js";
 import bookingRoutes from "../routes/booking.routes.js";
 import customerBookingRoutes from "./routes/booking.routes.js";
 import paymentRoutes from "./routes/payment.routes.js";
+import ownerTokenRoutes from "./routes/ownerToken.routes.js";
 import sessionRoutes from "../routes/session.routes.js";
 
 
@@ -55,6 +56,8 @@ app.use("/api/v1/bookings", bookingRoutes);
 app.use("/api/bookings", customerBookingRoutes);
 app.use("/api/v1/bookings", paymentRoutes);
 app.use("/api/bookings", paymentRoutes);
+app.use("/api/owner", ownerTokenRoutes);
+app.use("/api/v1/owner", ownerTokenRoutes);
 app.use("/api/v1/sessions", sessionRoutes);
 
 app.use(notFound);
