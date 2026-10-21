@@ -11,6 +11,9 @@ import cookieParser from "cookie-parser";
 import authRoutes from "../routes/auth.routes.js";
 import toiletRoutes from "../routes/toilet.routes.js";
 import favoriteRoutes from "../routes/favorite.routes.js";
+import bookingRoutes from "../routes/booking.routes.js";
+import paymentRoutes from "./routes/payment.routes.js";
+import sessionRoutes from "../routes/session.routes.js";
 
 
 const app = express();
@@ -47,6 +50,11 @@ app.use(
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/toilets", toiletRoutes);
 app.use("/api/v1/favorites", favoriteRoutes);
+app.use("/api/v1/bookings", bookingRoutes);
+app.use("/api/bookings", bookingRoutes);
+app.use("/api/v1/bookings", paymentRoutes);
+app.use("/api/bookings", paymentRoutes);
+app.use("/api/v1/sessions", sessionRoutes);
 
 app.use(notFound);
 app.use(errorHandler);  

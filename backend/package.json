@@ -8,6 +8,7 @@
         "test": "tests"
     },
     "scripts": {
+        "build": "prisma generate",
         "dev": "nodemon src/server.js",
         "test": "cross-env NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
         "start": "node src/server.js",
@@ -19,6 +20,8 @@
     "license": "ISC",
     "type": "module",
     "dependencies": {
+        "@neon/config": "^1.9.3",
+        "@neon/env": "^1.6.4",
         "@prisma/client": "^6.16.3",
         "bcryptjs": "^3.0.3",
         "cloudinary": "^2.10.0",

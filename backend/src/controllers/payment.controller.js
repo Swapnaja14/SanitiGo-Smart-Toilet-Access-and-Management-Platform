@@ -1,0 +1,139 @@
+import {
+  initiatePayment as initiatePaymentService,
+  simulatePaymentResult as simulatePaymentResultService,
+  getPaymentStatus as getPaymentStatusService,
+  processPayment as processPaymentService,
+} from "../services/payment.service.js";
+
+import ApiError from "../utils/ApiError.js";
+
+export const initiatePayment = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new ApiError(401, "Authentication is required.");
+    }
+
+    const payment = await initiatePaymentService(
+      req.params.bookingId,
+      userId,
+      req.body.paymentMethod
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Payment initiated successfully.",
+      data: payment,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const simulatePaymentResult = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new ApiError(401, "Authentication is required.");
+    }
+
+    const result = await simulatePaymentResultService(
+      req.params.bookingId,
+      userId,
+      req.body.outcome
+    );
+
+    return res.status(200).json({
+      success: true,
+      message:
+        result.payment.paymentStatus === "SUCCESS"
+          ? "Mock payment successful."
+          : "Mock payment failed.",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPaymentStatus = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new ApiError(401, "Authentication is required.");
+    }
+
+    const payment = await getPaymentStatusService(
+      req.params.bookingId,
+      userId
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment status retrieved successfully.",
+      data: payment,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Backward-compatibility handlers for existing Phase 5.1 direct tests
+export const processPayment = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ApiError(401, "Authentication is required.");
+    }
+
+    const result = await processPaymentService(
+      userId,
+      req.params.bookingId,
+      req.body.paymentMethod
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment successful",
+      data: {
+        booking: {
+          id: result.booking.id,
+          token: result.booking.token,
+          status: result.booking.status,
+          scheduledDate: result.booking.scheduledDate,
+          startTime: result.booking.startTime,
+          endTime: result.booking.endTime,
+          toilet: result.booking.toilet,
+        },
+        payment: {
+          id: result.payment.id,
+          amount: result.payment.amount,
+          currency: result.payment.currency,
+          paymentMethod: result.payment.paymentMethod,
+          paymentStatus: result.payment.paymentStatus,
+          transactionId: result.payment.transactionId,
+          paidAt: result.payment.paidAt,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPayment = getPaymentStatus;
+
+export default {
+  initiatePayment,
+  simulatePaymentResult,
+  getPaymentStatus,
+  processPayment,
+  getPayment,
+};
