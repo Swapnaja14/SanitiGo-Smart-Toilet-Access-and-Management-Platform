@@ -279,6 +279,9 @@ export const cancelMyBooking = async (bookingId, userId) => {
     });
 
     return updatedBooking;
+  }, {
+    maxWait: 10000,
+    timeout: 15000,
   });
 };
 

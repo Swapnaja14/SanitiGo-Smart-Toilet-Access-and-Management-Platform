@@ -170,6 +170,8 @@ export const startUsageSession = async (ownerId, token) => {
       {
         isolationLevel:
           Prisma.TransactionIsolationLevel.Serializable,
+        maxWait: 10000,
+        timeout: 15000,
       }
     );
   } catch (error) {
@@ -328,6 +330,8 @@ export const endUsageSession = async (
       {
         isolationLevel:
           Prisma.TransactionIsolationLevel.Serializable,
+        maxWait: 10000,
+        timeout: 15000,
       }
     );
   } catch (error) {
