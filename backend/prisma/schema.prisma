@@ -327,19 +327,22 @@ model ToiletImage {
 enum OutboxStatus {
   PENDING
   PUBLISHED
+  FAILED
 }
 
 model OutboxEvent {
-  id          String       @id @default(cuid())
-  eventType   String
-  aggregateId String
-  payload     Json
-  status      OutboxStatus @default(PENDING)
-  attempts    Int          @default(0)
-  createdAt   DateTime     @default(now())
-  publishedAt DateTime?
-  lastError   String?
+  id            String       @id @default(cuid())
+  eventType     String
+  aggregateId   String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+  publishedAt   DateTime?
+  lastError     String?
 
+  @@index([status, nextAttemptAt])
   @@index([status, createdAt])
   @@index([aggregateId])
 }

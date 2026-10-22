@@ -6,7 +6,7 @@ uploads/
 coverage/
 /src/generated/
 query
-migrations/
+/migrations/
 temp.js
 temp/
 tests
