@@ -19,3 +19,11 @@ export const mockPaymentResultSchema = z
     outcome: z.enum(["SUCCESS", "FAILED"]),
   })
   .strict();
+
+export const paymentWebhookSchema = z.object({
+  bookingId: z.string().min(1, "Booking ID is required"),
+  transactionId: z.string().min(1, "Transaction ID is required"),
+  amount: z.union([z.number(), z.string()]),
+  status: z.enum(["SUCCESS", "CAPTURED", "FAILED"]),
+  currency: z.string().optional(),
+});

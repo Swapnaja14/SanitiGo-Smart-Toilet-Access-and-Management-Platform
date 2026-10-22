@@ -1,4 +1,9 @@
+server:
+  shutdown: graceful
+
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 15s
   application:
     name: sanitigo-notification-service
 
@@ -9,15 +14,16 @@ spring:
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USERNAME:guest}
-    password: ${RABBITMQ_PASSWORD:guest}
+    username: ${RABBITMQ_USERNAME:sanitigo_app}
+    password: ${RABBITMQ_PASSWORD:SanitiGo@SecurePass2026!}
     listener:
       simple:
         acknowledge-mode: auto
         default-requeue-rejected: false
+        prefetch: 10
 
   datasource:
-    url: ${JDBC_DATABASE_URL:jdbc:postgresql://localhost:5433/sanitigo_test}
+    url: ${DATABASE_URL:${JDBC_DATABASE_URL:jdbc:postgresql://localhost:5433/sanitigo_test}}
     username: ${DATABASE_USERNAME:postgres}
     password: ${DATABASE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
@@ -26,3 +32,15 @@ sanitigo:
   rabbitmq:
     exchange: sanitigo.events
     queue: sanitigo.booking.events
+    dead-letter-exchange: sanitigo.dlx
+    dead-letter-queue: sanitigo.booking.events.dlq
+    dead-letter-routing-key: sanitigo.booking.events.dlq
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  rabbitmq:
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}

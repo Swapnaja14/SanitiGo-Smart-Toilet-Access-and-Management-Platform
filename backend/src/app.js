@@ -37,11 +37,29 @@ app.use(
 );
 
 
+import { checkOperationalHealth } from "./jobs/operationalMonitor.job.js";
+
 app.get("/", (req, res) => {
     res.status(200).json({
         success: true,
         message: "SanitiGo Backend Running"
     });
+});
+
+app.get("/api/health/operations", async (req, res) => {
+    try {
+        const health = await checkOperationalHealth();
+        const statusCode = health.status === "DEGRADED" ? 503 : 200;
+        res.status(statusCode).json({
+            success: health.status !== "DEGRADED",
+            ...health
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
 });
 
 app.use(
@@ -57,6 +75,8 @@ app.use("/api/v1/bookings", bookingRoutes);
 app.use("/api/bookings", customerBookingRoutes);
 app.use("/api/v1/bookings", paymentRoutes);
 app.use("/api/bookings", paymentRoutes);
+app.use("/api/v1/payments", paymentRoutes);
+app.use("/api/payments", paymentRoutes);
 app.use("/api/owner", ownerTokenRoutes);
 app.use("/api/v1/owner", ownerTokenRoutes);
 app.use("/api/owner/sessions", usageSessionRoutes);

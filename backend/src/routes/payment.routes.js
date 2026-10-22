@@ -13,9 +13,26 @@ import { authorizeRoles } from "../middlewares/role.middleware.js";
 import {
   initiatePaymentSchema,
   mockPaymentResultSchema,
+  paymentWebhookSchema,
 } from "../validators/payment.schema.js";
+import ApiError from "../utils/ApiError.js";
 
 const router = Router();
+
+// Guard middleware to ensure mock endpoints cannot be accessed in production
+const requireMockPaymentAllowed = (req, res, next) => {
+  if (process.env.NODE_ENV === "production" || process.env.PAYMENT_MODE !== "mock") {
+    throw new ApiError(403, "Mock payment operations are strictly disabled in production.");
+  }
+  next();
+};
+
+// Public payment provider webhook endpoint (authenticated via HMAC signature, not user JWT)
+router.post(
+  "/webhook",
+  validate(paymentWebhookSchema),
+  paymentController.handleWebhook
+);
 
 router.use(authenticate);
 router.use(authorizeRoles("USER"));
@@ -29,12 +46,14 @@ router.post(
 
 router.post(
   "/:bookingId/payment/mock-result",
+  requireMockPaymentAllowed,
   validate(mockPaymentResultSchema),
   simulatePaymentResult
 );
 
 router.post(
   "/:bookingId/payments/mock-result",
+  requireMockPaymentAllowed,
   validate(mockPaymentResultSchema),
   simulatePaymentResult
 );
@@ -44,9 +63,10 @@ router.get(
   getPaymentStatus
 );
 
-// Backward-compatibility legacy endpoint for Phase 5.1 direct tests
+// Backward-compatibility legacy endpoint for Phase 5.1 direct tests (only allowed in dev/test)
 router.post(
   "/:bookingId/payments",
+  requireMockPaymentAllowed,
   paymentController.processPayment
 );
 

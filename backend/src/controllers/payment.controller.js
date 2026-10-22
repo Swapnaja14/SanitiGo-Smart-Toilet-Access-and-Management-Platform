@@ -3,6 +3,7 @@ import {
   simulatePaymentResult as simulatePaymentResultService,
   getPaymentStatus as getPaymentStatusService,
   processPayment as processPaymentService,
+  handlePaymentWebhook as handlePaymentWebhookService,
 } from "../services/payment.service.js";
 
 import ApiError from "../utils/ApiError.js";
@@ -130,10 +131,34 @@ export const processPayment = async (req, res, next) => {
 
 export const getPayment = getPaymentStatus;
 
+export const handleWebhook = async (req, res, next) => {
+  try {
+    const signature =
+      req.headers["x-razorpay-signature"] ||
+      req.headers["stripe-signature"] ||
+      req.headers["x-payment-signature"];
+
+    const result = await handlePaymentWebhookService({
+      rawBody: req.body,
+      signature,
+      event: req.body,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Webhook processed successfully.",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export default {
   initiatePayment,
   simulatePaymentResult,
   getPaymentStatus,
   processPayment,
   getPayment,
+  handleWebhook,
 };

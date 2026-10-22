@@ -1,7 +1,20 @@
 import amqp from "amqplib";
 import prisma from "../config/prisma.js";
+import logger from "../config/logger.js";
 
-const RABBITMQ_URL = process.env.RABBITMQ_URL;
+function getRabbitMQUrl() {
+  if (process.env.RABBITMQ_URL) {
+    return process.env.RABBITMQ_URL;
+  }
+  const host = process.env.RABBITMQ_HOST;
+  if (!host) return undefined;
+  const port = process.env.RABBITMQ_PORT || 5672;
+  const username = encodeURIComponent(process.env.RABBITMQ_USERNAME || "sanitigo_app");
+  const password = encodeURIComponent(process.env.RABBITMQ_PASSWORD || "");
+  const auth = password ? `${username}:${password}@` : username ? `${username}@` : "";
+  return `amqp://${auth}${host}:${port}`;
+}
+
 const EXCHANGE =
   process.env.RABBITMQ_EXCHANGE || "sanitigo.events";
 const QUEUE = "sanitigo.booking.events";
@@ -14,6 +27,8 @@ const BATCH_SIZE = 50;
 let connection;
 let channel;
 let publishing = false;
+let isShuttingDown = false;
+let activeBatchPromise = null;
 const returnedMessageIds = new Set();
 
 function retryDelayMs(attempt) {
@@ -26,14 +41,15 @@ function retryDelayMs(attempt) {
 async function ensureRabbitMQConnection() {
   if (channel) return channel;
 
-  if (!RABBITMQ_URL) {
-    throw new Error("RABBITMQ_URL is not configured");
+  const amqpUrl = getRabbitMQUrl();
+  if (!amqpUrl) {
+    throw new Error("RabbitMQ connection is not configured (missing RABBITMQ_URL or RABBITMQ_HOST)");
   }
 
-  connection = await amqp.connect(RABBITMQ_URL);
+  connection = await amqp.connect(amqpUrl);
 
   connection.on("error", (error) => {
-    console.error("[Outbox] RabbitMQ connection error:", error.message);
+    logger.error(`[Outbox] RabbitMQ connection error: ${error.message}`);
   });
 
   connection.on("close", () => {
@@ -52,12 +68,7 @@ async function ensureRabbitMQConnection() {
     durable: true,
   });
 
-  await confirmChannel.assertQueue(QUEUE, {
-    durable: true,
-  });
-
-  await confirmChannel.bindQueue(QUEUE, EXCHANGE, "#");
-
+  // The Java service owns queue declaration and binding.
   channel = confirmChannel;
   return channel;
 }
@@ -104,6 +115,8 @@ function publishAndConfirm(activeChannel, event) {
 async function recordPublishFailure(event, error) {
   const attempts = event.attempts + 1;
   const permanentlyFailed = attempts >= MAX_ATTEMPTS;
+  const nextAttemptAt = new Date(Date.now() + retryDelayMs(attempts));
+  const failureReason = String(error?.message || error).slice(0, 2000);
 
   await prisma.outboxEvent.updateMany({
     where: {
@@ -114,21 +127,55 @@ async function recordPublishFailure(event, error) {
     data: {
       attempts,
       status: permanentlyFailed ? "FAILED" : "PENDING",
-      nextAttemptAt: new Date(
-        Date.now() + retryDelayMs(attempts),
-      ),
-      lastError: String(error?.message || error).slice(0, 2000),
+      nextAttemptAt,
+      lastError: failureReason,
     },
   });
 
-  console.error(
-    `[Outbox] ${event.id} publication failed; ` +
-      `attempt ${attempts}/${MAX_ATTEMPTS}; ` +
-      `status=${permanentlyFailed ? "FAILED" : "PENDING"}`,
-  );
+  const eventId = event.payload?.eventId || event.id;
+  if (permanentlyFailed) {
+    logger.error(
+      `[Outbox:PermanentlyFailed] EventId=${eventId} OutboxId=${event.id} ` +
+        `EventType=${event.eventType} TotalAttempts=${attempts}/${MAX_ATTEMPTS} ` +
+        `FailureReason="${failureReason}"`
+    );
+  } else {
+    logger.warn(
+      `[Outbox:PublishRetryScheduled] EventId=${eventId} OutboxId=${event.id} ` +
+        `EventType=${event.eventType} Attempt=${attempts}/${MAX_ATTEMPTS} ` +
+        `NextAttemptAt=${nextAttemptAt.toISOString()} Reason="${failureReason}"`
+    );
+  }
 }
 
 async function publishOne(event) {
+  const eventId = event.payload?.eventId || event.id;
+  const currentAttempt = event.attempts + 1;
+
+  // Atomic lease claim: prevent any concurrent publisher instance from claiming this event
+  const leaseTime = new Date(Date.now() + 60_000);
+  const claim = await prisma.outboxEvent.updateMany({
+    where: {
+      id: event.id,
+      status: "PENDING",
+      attempts: event.attempts,
+      nextAttemptAt: { lte: new Date() },
+    },
+    data: {
+      nextAttemptAt: leaseTime,
+    },
+  });
+
+  if (claim.count === 0) {
+    // Already claimed or modified by another worker instance
+    return false;
+  }
+
+  logger.info(
+    `[Outbox:Publishing] EventId=${eventId} OutboxId=${event.id} ` +
+      `EventType=${event.eventType} Attempt=${currentAttempt}/${MAX_ATTEMPTS}`
+  );
+
   try {
     const activeChannel = await ensureRabbitMQConnection();
     await publishAndConfirm(activeChannel, event);
@@ -138,7 +185,6 @@ async function publishOne(event) {
       where: {
         id: event.id,
         status: "PENDING",
-        attempts: event.attempts,
       },
       data: {
         status: "PUBLISHED",
@@ -148,14 +194,18 @@ async function publishOne(event) {
       },
     });
 
+    logger.info(
+      `[Outbox:Published] EventId=${eventId} OutboxId=${event.id} ` +
+        `EventType=${event.eventType} Status=PUBLISHED Attempts=${currentAttempt}`
+    );
+
     return true;
   } catch (error) {
     try {
       await recordPublishFailure(event, error);
     } catch (databaseError) {
-      console.error(
-        "[Outbox] Could not record publication failure:",
-        databaseError.message,
+      logger.error(
+        `[Outbox:DatabaseError] Could not record publication failure for ${event.id}: ${databaseError.message}`
       );
     }
 
@@ -174,41 +224,55 @@ async function publishOne(event) {
 }
 
 export async function publishPendingOutboxEvents() {
-  if (publishing) return 0;
+  if (publishing || isShuttingDown) return 0;
   publishing = true;
 
   let publishedCount = 0;
 
-  try {
-    const events = await prisma.outboxEvent.findMany({
-      where: {
-        status: "PENDING",
-        nextAttemptAt: { lte: new Date() },
-      },
-      orderBy: { createdAt: "asc" },
-      take: BATCH_SIZE,
-    });
+  activeBatchPromise = (async () => {
+    try {
+      const events = await prisma.outboxEvent.findMany({
+        where: {
+          status: "PENDING",
+          nextAttemptAt: { lte: new Date() },
+        },
+        orderBy: { createdAt: "asc" },
+        take: BATCH_SIZE,
+      });
 
-    for (const event of events) {
-      const success = await publishOne(event);
-      if (success) {
-        publishedCount++;
+      for (const event of events) {
+        if (isShuttingDown) {
+          logger.info("[Outbox] Graceful shutdown in progress; halting remaining event batch.");
+          break;
+        }
+        const success = await publishOne(event);
+        if (success) {
+          publishedCount++;
+        }
       }
-    }
 
-    return publishedCount;
-  } catch (error) {
-    console.error(
-      "[Outbox] Poll failed:",
-      error.message,
-    );
-    return publishedCount;
-  } finally {
-    publishing = false;
-  }
+      return publishedCount;
+    } catch (error) {
+      logger.error(`[Outbox] Poll failed: ${error.message}`);
+      return publishedCount;
+    } finally {
+      publishing = false;
+      activeBatchPromise = null;
+    }
+  })();
+
+  return await activeBatchPromise;
 }
 
-export async function closeRabbitMQ() {
+export async function closeRabbitMQ(timeoutMs = 10000) {
+  isShuttingDown = true;
+  logger.info("[Outbox] Initiating RabbitMQ shutdown; awaiting completion of in-flight work...");
+
+  if (activeBatchPromise) {
+    const timeout = new Promise((resolve) => setTimeout(resolve, timeoutMs));
+    await Promise.race([activeBatchPromise, timeout]);
+  }
+
   const activeChannel = channel;
   const activeConnection = connection;
 
@@ -230,6 +294,8 @@ export async function closeRabbitMQ() {
       // Already closed.
     }
   }
+
+  logger.info("[Outbox] RabbitMQ connection cleanly closed.");
 }
 
 export default {

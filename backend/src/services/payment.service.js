@@ -72,7 +72,15 @@ export const initiatePayment = async (
       );
     }
 
+    if (!booking.amount || Number(booking.amount) <= 0) {
+      throw new ApiError(400, "Invalid booking amount configured for this toilet.");
+    }
+
     const existingPayment = booking.payment;
+
+    if (existingPayment?.paymentStatus === "SUCCESS") {
+      throw new ApiError(409, "This booking is already paid.");
+    }
 
     if (existingPayment?.paymentStatus === "PENDING") {
       return existingPayment;
@@ -111,8 +119,8 @@ export const simulatePaymentResult = async (
 ) => {
   if (!isDevelopmentMockEnabled()) {
     throw new ApiError(
-      404,
-      "Mock payment endpoint is disabled."
+      403,
+      "Mock payment endpoint is strictly disabled in production."
     );
   }
 
@@ -297,6 +305,13 @@ export const getPaymentStatus = async (
 
 // Compatibility adapter for existing Phase 5.1 direct payment calls
 export const processPayment = async (userId, bookingId, paymentMethod) => {
+  if (!isDevelopmentMockEnabled()) {
+    throw new ApiError(
+      403,
+      "Direct payment endpoint is strictly disabled in production. Use a verified payment gateway webhook."
+    );
+  }
+
   return executeWithRetry(async () => {
     return prisma.$transaction(
       async (tx) => {
@@ -399,10 +414,165 @@ export const getPaymentByBookingId = async (userId, bookingId) => {
   return getPaymentStatus(bookingId, userId);
 };
 
+/**
+ * Handle real payment provider webhooks (e.g., Stripe, Razorpay).
+ *
+ * Requirements enforced:
+ * 1. Cryptographic HMAC signature verification with timing-safe comparison.
+ * 2. Idempotency on provider transaction ID and booking confirmation status.
+ * 3. Server-side payment amount reconciliation against booked price snapshot.
+ * 4. Atomic database state transition and transactional outbox event creation.
+ */
+export const handlePaymentWebhook = async ({
+  rawBody,
+  signature,
+  event,
+}) => {
+  const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new ApiError(500, "Payment webhook secret is not configured.");
+  }
+
+  if (!signature) {
+    throw new ApiError(401, "Webhook signature is missing.");
+  }
+
+  // 1. Verify provider HMAC-SHA256 signature using timing-safe comparison
+  const expectedSignature = crypto
+    .createHmac("sha256", webhookSecret)
+    .update(typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody))
+    .digest("hex");
+
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    signatureBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
+  ) {
+    throw new ApiError(401, "Invalid webhook signature.");
+  }
+
+  const {
+    bookingId,
+    transactionId,
+    amount: providerAmount,
+    status: providerStatus,
+  } = event;
+
+  if (!bookingId || !transactionId) {
+    throw new ApiError(400, "Missing required event fields (bookingId, transactionId).");
+  }
+
+  return executeWithRetry(async () => {
+    return prisma.$transaction(
+      async (tx) => {
+        // 2. Idempotency Check: Don't re-process duplicate webhook notifications
+        const existingTx = await tx.payment.findFirst({
+          where: { transactionId },
+        });
+
+        if (existingTx && existingTx.paymentStatus === "SUCCESS") {
+          return {
+            status: "ALREADY_PROCESSED",
+            paymentId: existingTx.id,
+            bookingId: existingTx.bookingId,
+          };
+        }
+
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+          include: { payment: true },
+        });
+
+        if (!booking) {
+          throw new ApiError(404, `Booking ${bookingId} not found.`);
+        }
+
+        if (booking.status === "CONFIRMED" && booking.payment?.paymentStatus === "SUCCESS") {
+          return {
+            status: "ALREADY_CONFIRMED",
+            paymentId: booking.payment.id,
+            bookingId: booking.id,
+          };
+        }
+
+        // 3. Server-Side Amount Verification: Never trust client-supplied amounts
+        const expectedAmount = Number(booking.amount);
+        const receivedAmount = Number(providerAmount);
+
+        if (Math.abs(expectedAmount - receivedAmount) > 0.01) {
+          throw new ApiError(
+            400,
+            `Amount mismatch: expected ${expectedAmount}, received ${receivedAmount}.`
+          );
+        }
+
+        // 4. Handle failed/canceled payment status from provider
+        if (providerStatus !== "SUCCESS" && providerStatus !== "CAPTURED") {
+          const failedPayment = await tx.payment.update({
+            where: { id: booking.payment.id },
+            data: {
+              paymentStatus: "FAILED",
+              transactionId,
+            },
+          });
+
+          return {
+            status: "PAYMENT_FAILED",
+            paymentId: failedPayment.id,
+          };
+        }
+
+        // 5. Successful payment confirmation & Outbox event
+        const updatedPayment = await tx.payment.update({
+          where: { id: booking.payment.id },
+          data: {
+            paymentStatus: "SUCCESS",
+            transactionId,
+            paidAt: new Date(),
+          },
+        });
+
+        const updatedBooking = await tx.booking.update({
+          where: { id: booking.id },
+          data: { status: "CONFIRMED" },
+        });
+
+        await recordOutboxEvent(tx, {
+          eventType: "payment.succeeded.v1",
+          aggregateId: booking.id,
+          data: {
+            bookingId: booking.id,
+            paymentId: updatedPayment.id,
+            customerId: booking.userId,
+            toiletId: booking.toiletId,
+            amount: updatedPayment.amount.toString(),
+            currency: updatedPayment.currency,
+            paymentStatus: updatedPayment.paymentStatus,
+            bookingStatus: updatedBooking.status,
+            paidAt: updatedPayment.paidAt.toISOString(),
+          },
+        });
+
+        return {
+          status: "PROCESSED",
+          paymentId: updatedPayment.id,
+          bookingId: booking.id,
+        };
+      },
+      {
+        isolationLevel: "Serializable",
+      }
+    );
+  });
+};
+
 export default {
   initiatePayment,
   simulatePaymentResult,
   getPaymentStatus,
   processPayment,
   getPaymentByBookingId,
+  handlePaymentWebhook,
 };
