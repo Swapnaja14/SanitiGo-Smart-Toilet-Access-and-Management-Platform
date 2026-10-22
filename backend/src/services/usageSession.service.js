@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
+import { recordOutboxEvent } from "./outbox.service.js";
 
 const EARLY_ACCESS_MINUTES = 15;
 
@@ -147,6 +148,19 @@ export const startUsageSession = async (ownerId, token) => {
           },
         });
 
+        await recordOutboxEvent(tx, {
+          eventType: "session.started.v1",
+          aggregateId: session.id,
+          data: {
+            sessionId: session.id,
+            bookingId: booking.id,
+            customerId: booking.userId,
+            toiletId: booking.toiletId,
+            startedAt: session.startedAt.toISOString(),
+            status: session.status,
+          },
+        });
+
         return {
           session,
           bookingStatus: "IN_PROGRESS",
@@ -280,6 +294,22 @@ export const endUsageSession = async (
             "The booking status changed while ending the session."
           );
         }
+
+        await recordOutboxEvent(tx, {
+          eventType: "session.completed.v1",
+          aggregateId: session.id,
+          data: {
+            sessionId: session.id,
+            bookingId: session.bookingId,
+            customerId: session.userId,
+            toiletId: session.toiletId,
+            startedAt: session.startedAt.toISOString(),
+            endedAt: endedAt.toISOString(),
+            durationMinutes: duration,
+            sessionStatus: "COMPLETED",
+            bookingStatus: "COMPLETED",
+          },
+        });
 
         return {
           session: {

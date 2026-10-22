@@ -23,6 +23,7 @@
         "@neon/config": "^1.9.3",
         "@neon/env": "^1.6.4",
         "@prisma/client": "^6.16.3",
+        "amqplib": "^2.2.0",
         "bcryptjs": "^3.0.3",
         "cloudinary": "^2.10.0",
         "cookie-parser": "^1.4.7",

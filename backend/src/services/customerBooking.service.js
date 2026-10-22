@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
+import { recordOutboxEvent } from "./outbox.service.js";
 
 const getOwnedBooking = async (tx, bookingId, userId) => {
   const booking = await tx.booking.findFirst({
@@ -263,6 +264,19 @@ export const cancelMyBooking = async (bookingId, userId) => {
         },
       });
     }
+
+    await recordOutboxEvent(tx, {
+      eventType: "booking.cancelled.v1",
+      aggregateId: updatedBooking.id,
+      data: {
+        bookingId: updatedBooking.id,
+        customerId: booking.userId,
+        toiletId: booking.toiletId,
+        previousStatus: booking.status,
+        status: updatedBooking.status,
+        cancelledAt: updatedBooking.updatedAt.toISOString(),
+      },
+    });
 
     return updatedBooking;
   });

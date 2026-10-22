@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: sanitigo-notification-service
+
+  sql:
+    init:
+      mode: always
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: false
+
+  datasource:
+    url: ${JDBC_DATABASE_URL:jdbc:postgresql://localhost:5433/sanitigo_test}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+sanitigo:
+  rabbitmq:
+    exchange: sanitigo.events
+    queue: sanitigo.booking.events

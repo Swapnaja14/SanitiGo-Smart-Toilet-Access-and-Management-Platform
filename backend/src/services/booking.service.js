@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import prisma from "../config/prisma.js";
 import ApiError from "../../utils/ApiError.js";
+import { recordOutboxEvent } from "./outbox.service.js";
 import {
     createISTDateTime,
     createISTDate,
@@ -204,6 +205,21 @@ const createBooking = async (
                             },
                         },
                     },
+                });
+
+                await recordOutboxEvent(tx, {
+                  eventType: "booking.created.v1",
+                  aggregateId: booking.id,
+                  data: {
+                    bookingId: booking.id,
+                    customerId: booking.userId,
+                    toiletId: booking.toiletId,
+                    scheduledDate: booking.scheduledDate.toISOString(),
+                    startTime: booking.startTime.toISOString(),
+                    endTime: booking.endTime.toISOString(),
+                    amount: booking.amount.toString(),
+                    status: booking.status,
+                  },
                 });
 
                 return booking;

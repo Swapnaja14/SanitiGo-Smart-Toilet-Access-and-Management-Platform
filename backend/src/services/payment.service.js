@@ -4,6 +4,7 @@ import crypto from "crypto";
 
 import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
+import { recordOutboxEvent } from "./outbox.service.js";
 import { executeWithRetry } from "../../utils/transactionRetry.js";
 
 const isDevelopmentMockEnabled = () =>
@@ -211,6 +212,22 @@ export const simulatePaymentResult = async (
                 price: true,
               },
             },
+          },
+        });
+
+        await recordOutboxEvent(tx, {
+          eventType: "payment.succeeded.v1",
+          aggregateId: booking.id,
+          data: {
+            bookingId: booking.id,
+            paymentId: updatedPayment.id,
+            customerId: booking.userId,
+            toiletId: booking.toiletId,
+            amount: updatedPayment.amount.toString(),
+            currency: updatedPayment.currency,
+            paymentStatus: updatedPayment.paymentStatus,
+            bookingStatus: updatedBooking.status,
+            paidAt: updatedPayment.paidAt.toISOString(),
           },
         });
 

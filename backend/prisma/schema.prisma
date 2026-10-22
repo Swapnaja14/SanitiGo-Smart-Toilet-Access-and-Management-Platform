@@ -323,3 +323,23 @@ model ToiletImage {
 
   @@index([toiletId])
 }
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+}
+
+model OutboxEvent {
+  id          String       @id @default(cuid())
+  eventType   String
+  aggregateId String
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  createdAt   DateTime     @default(now())
+  publishedAt DateTime?
+  lastError   String?
+
+  @@index([status, createdAt])
+  @@index([aggregateId])
+}
