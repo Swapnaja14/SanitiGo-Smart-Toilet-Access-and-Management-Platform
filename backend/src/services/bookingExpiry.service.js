@@ -71,6 +71,9 @@ export const expireBookings = async () => {
     });
 
     return result.count;
+  }, {
+    maxWait: 10000,
+    timeout: 15000,
   });
 };
 
