@@ -138,13 +138,23 @@ const updateToilet = async(toiletId, ownerId, data) => {
         throw new ApiError(404, "Toilet not found or you do not own this toilet");
     }
 
+    // Explicitly exclude computed and privileged fields from user updates
+    const {
+        averageRating: _ignoredAvg,
+        totalReviews: _ignoredTotal,
+        isVerified: _ignoredVerified,
+        ownerId: _ignoredOwnerId,
+        id: _ignoredId,
+        createdAt: _ignoredCreatedAt,
+        updatedAt: _ignoredUpdatedAt,
+        ...allowedData
+    } = data;
+
     const updatedToilet = await prisma.toilet.update({
         where: {
             id: toiletId,
         },
-        data: {
-            ...data,
-        },
+        data: allowedData,
     });
     return updatedToilet;
 }
