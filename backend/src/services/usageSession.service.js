@@ -297,6 +297,17 @@ export const endUsageSession = async (
           );
         }
 
+        // Method A: Settle Razorpay Route escrow hold to owner on session completion
+        await tx.payment.updateMany({
+          where: {
+            bookingId: session.booking.id,
+            transferStatus: "HELD",
+          },
+          data: {
+            transferStatus: "SETTLED",
+          },
+        });
+
         await recordOutboxEvent(tx, {
           eventType: "session.completed.v1",
           aggregateId: session.id,

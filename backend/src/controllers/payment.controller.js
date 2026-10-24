@@ -4,6 +4,10 @@ import {
   getPaymentStatus as getPaymentStatusService,
   processPayment as processPaymentService,
   handlePaymentWebhook as handlePaymentWebhookService,
+  createRazorpayOrder as createRazorpayOrderService,
+  verifyRazorpayPayment as verifyRazorpayPaymentService,
+  linkOwnerRazorpayAccount as linkOwnerRazorpayAccountService,
+  getOwnerRazorpayAccount as getOwnerRazorpayAccountService,
 } from "../services/payment.service.js";
 
 import ApiError from "../utils/ApiError.js";
@@ -139,7 +143,7 @@ export const handleWebhook = async (req, res, next) => {
       req.headers["x-payment-signature"];
 
     const result = await handlePaymentWebhookService({
-      rawBody: req.body,
+      rawBody: req.rawBody || req.body,
       signature,
       event: req.body,
     });
@@ -154,6 +158,91 @@ export const handleWebhook = async (req, res, next) => {
   }
 };
 
+export const createRazorpayOrder = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ApiError(401, "Authentication is required.");
+    }
+
+    const orderData = await createRazorpayOrderService(
+      req.params.bookingId,
+      userId
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Razorpay order created successfully.",
+      data: orderData,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyRazorpayPayment = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ApiError(401, "Authentication is required.");
+    }
+
+    const result = await verifyRazorpayPaymentService({
+      bookingId: req.params.bookingId,
+      userId,
+      razorpayOrderId: req.body.razorpayOrderId,
+      razorpayPaymentId: req.body.razorpayPaymentId,
+      razorpaySignature: req.body.razorpaySignature,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Razorpay payment verified and booking confirmed successfully.",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const linkOwnerPayoutAccount = async (req, res, next) => {
+  try {
+    const ownerId = req.user?.id;
+    if (!ownerId) {
+      throw new ApiError(401, "Authentication is required.");
+    }
+
+    const updatedOwner = await linkOwnerRazorpayAccountService(ownerId, req.body);
+
+    return res.status(200).json({
+      success: true,
+      message: "Owner Razorpay Route payout account linked successfully.",
+      data: updatedOwner,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getOwnerPayoutAccount = async (req, res, next) => {
+  try {
+    const ownerId = req.user?.id;
+    if (!ownerId) {
+      throw new ApiError(401, "Authentication is required.");
+    }
+
+    const ownerData = await getOwnerRazorpayAccountService(ownerId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Owner payout account retrieved successfully.",
+      data: ownerData,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export default {
   initiatePayment,
   simulatePaymentResult,
@@ -161,4 +250,8 @@ export default {
   processPayment,
   getPayment,
   handleWebhook,
+  createRazorpayOrder,
+  verifyRazorpayPayment,
+  linkOwnerPayoutAccount,
+  getOwnerPayoutAccount,
 };
