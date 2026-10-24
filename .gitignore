@@ -1,0 +1,31 @@
+# Logs
+logs/
+*.log
+src/logs/
+backend/logs/
+
+# Dependencies
+node_modules/
+backend/node_modules/
+
+# Build outputs
+target/
+notification-service/target/
+coverage/
+backend/coverage/
+backend/uploads/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+.neon
+backend/.env
+backend/.env.test
+backend/.neon
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

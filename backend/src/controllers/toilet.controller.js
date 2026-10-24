@@ -105,6 +105,11 @@ export const searchToilets = asyncHandler(async(req, res) => {
         isAvailable = req.query.isAvailable === "true";
     }
 
+    let isVerified;
+    if (req.query.isVerified !== undefined) {
+        isVerified = req.query.isVerified === "true";
+    }
+
     const amenityIds = req.query.amenityIds
         ? req.query.amenityIds.split(",").filter(Boolean)
         : [];
@@ -155,6 +160,7 @@ export const searchToilets = asyncHandler(async(req, res) => {
             maxPrice,
             minRating,
             isAvailable,
+            isVerified,
             amenityIds
         }
     );

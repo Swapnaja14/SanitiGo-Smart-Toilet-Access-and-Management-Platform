@@ -1,0 +1,57 @@
+server:
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 15s
+  application:
+    name: sanitigo-notification-service
+
+  sql:
+    init:
+      mode: always
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:sanitigo_app}
+    password: ${RABBITMQ_PASSWORD:SanitiGo@SecurePass2026!}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: false
+        prefetch: 10
+
+  datasource:
+    url: ${DATABASE_URL:${JDBC_DATABASE_URL:jdbc:postgresql://ep-steep-shadow-b3jp78tc-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require}}
+    username: ${DATABASE_USERNAME:neondb_owner}
+    password: ${DATABASE_PASSWORD:npg_iQh3g9Etkros}
+    driver-class-name: org.postgresql.Driver
+
+sanitigo:
+  rabbitmq:
+    exchange: sanitigo.events
+    queue: sanitigo.booking.events
+    dead-letter-exchange: sanitigo.dlx
+    dead-letter-queue: sanitigo.booking.events.dlq
+    dead-letter-routing-key: sanitigo.booking.events.dlq
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:postgresql://localhost:5433/sanitigo_test
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  rabbitmq:
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}

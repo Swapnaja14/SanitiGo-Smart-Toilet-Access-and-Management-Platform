@@ -8,8 +8,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 enum UserRole {
@@ -21,8 +22,10 @@ enum UserRole {
 enum BookingStatus {
   PENDING
   CONFIRMED
+  IN_PROGRESS
   CANCELLED
   COMPLETED
+  EXPIRED
 }
 
 enum SessionStatus {
@@ -82,6 +85,13 @@ enum AmenityCategory {
   OTHER
 }
 
+enum NotificationType {
+  BOOKING_CREATED
+  PAYMENT_SUCCEEDED
+  BOOKING_CANCELLED
+  SESSION_COMPLETED
+}
+
 model User {
   id           String    @id @default(cuid())
   fullName     String
@@ -98,12 +108,31 @@ model User {
   lastLogin    DateTime?
 
   // Relations
-  toilets    Toilet[]
-  bookings   Booking[]
-  sessions   UsageSession[]
-  reviews    Review[]
-  favorites  Favorite[]
-  complaints Complaint[]
+  toilets       Toilet[]
+  bookings      Booking[]
+  sessions      UsageSession[]
+  reviews       Review[]
+  favorites     Favorite[]
+  complaints    Complaint[]
+  notifications Notification[]
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  eventId   String
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([userId, readAt, createdAt])
+  @@index([eventId])
 }
 
 model Toilet {
@@ -157,19 +186,30 @@ model OperatingHours {
 }
 
 model Booking {
-  id            String         @id @default(cuid())
-  userId        String
-  toiletId      String
+  id       String @id @default(cuid())
+  userId   String
+  toiletId String
+
+  // Access token
+  token String? @unique
+
+  // Price snapshot at booking time
+  amount Decimal @default(0) @db.Decimal(10, 2)
+
   scheduledDate DateTime
   startTime     DateTime
   endTime       DateTime
-  status        BookingStatus  @default(PENDING)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+
+  status BookingStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  toilet        Toilet         @relation(fields: [toiletId], references: [id], onDelete: Cascade)
-  sessions      UsageSession[]
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toilet   Toilet         @relation(fields: [toiletId], references: [id], onDelete: Cascade)
+  sessions UsageSession[]
+  payment  Payment?
 
   @@index([userId])
   @@index([toiletId])
@@ -202,18 +242,28 @@ model UsageSession {
 }
 
 model Payment {
-  id            String        @id @default(cuid())
-  sessionId     String        @unique
+  id String @id @default(cuid())
+
+  // Payment can be linked to a booking before a session starts
+  bookingId String? @unique
+
+  // Optional link to the resulting usage session
+  sessionId String? @unique
+
   amount        Decimal       @db.Decimal(10, 2)
   currency      String        @default("INR")
   paymentMethod PaymentMethod
   paymentStatus PaymentStatus @default(PENDING)
-  transactionId String?       @unique
+
+  transactionId String?   @unique
   paidAt        DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  session       UsageSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  booking Booking?      @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  session UsageSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
   @@index([paymentStatus])
 }
@@ -298,4 +348,27 @@ model ToiletImage {
   toilet       Toilet   @relation(fields: [toiletId], references: [id], onDelete: Cascade)
 
   @@index([toiletId])
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+model OutboxEvent {
+  id            String       @id @default(cuid())
+  eventType     String
+  aggregateId   String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+  publishedAt   DateTime?
+  lastError     String?
+
+  @@index([status, nextAttemptAt])
+  @@index([status, createdAt])
+  @@index([aggregateId])
 }

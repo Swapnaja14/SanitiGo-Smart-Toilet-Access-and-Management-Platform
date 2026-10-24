@@ -9,17 +9,21 @@ import authenticate from "../middleware/auth.js";
 import authorize from "../middleware/authorize.middleware.js";
 import ROLES from "../src/constants/roles.js";
 
+import { authRateLimiter } from "../src/middlewares/rateLimiter.js";
+
 const router = Router();
 
 // Public route
 router.post(
     "/register",
+    authRateLimiter,
     validate(registerSchema),
     authController.register
 );
 
 router.post(
     "/login",
+    authRateLimiter,
     validate(loginSchema),
     authController.login
 );
