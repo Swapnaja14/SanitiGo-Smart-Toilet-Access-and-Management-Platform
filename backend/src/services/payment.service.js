@@ -6,6 +6,7 @@ import prisma from "../config/prisma.js";
 import ApiError from "../utils/ApiError.js";
 import { recordOutboxEvent } from "./outbox.service.js";
 import { executeWithRetry } from "../../utils/transactionRetry.js";
+import getRazorpayInstance from "../config/razorpay.js";
 
 const isDevelopmentMockEnabled = () =>
   process.env.PAYMENT_MODE === "mock" &&
@@ -27,6 +28,17 @@ const getCustomerBooking = async (tx, bookingId, userId) => {
           city: true,
           state: true,
           price: true,
+          ownerId: true,
+          owner: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phoneNumber: true,
+              businessName: true,
+              razorpayAccountId: true,
+            },
+          },
         },
       },
     },
@@ -454,9 +466,15 @@ export const handlePaymentWebhook = async ({
   }
 
   // 1. Verify provider HMAC-SHA256 signature using timing-safe comparison
+  const payloadToSign = Buffer.isBuffer(rawBody)
+    ? rawBody
+    : typeof rawBody === "string"
+    ? rawBody
+    : JSON.stringify(rawBody);
+
   const expectedSignature = crypto
     .createHmac("sha256", webhookSecret)
-    .update(typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody))
+    .update(payloadToSign)
     .digest("hex");
 
   const signatureBuffer = Buffer.from(signature);
@@ -469,12 +487,32 @@ export const handlePaymentWebhook = async ({
     throw new ApiError(401, "Invalid webhook signature.");
   }
 
-  const {
-    bookingId,
-    transactionId,
-    amount: providerAmount,
-    status: providerStatus,
-  } = event;
+  const rzpPaymentEntity = event.payload?.payment?.entity;
+  const bookingId =
+    event.bookingId ||
+    rzpPaymentEntity?.notes?.bookingId;
+  const transactionId =
+    event.transactionId ||
+    rzpPaymentEntity?.id;
+  const providerAmount =
+    event.amount !== undefined
+      ? event.amount
+      : rzpPaymentEntity?.amount !== undefined
+      ? rzpPaymentEntity.amount / 100
+      : undefined;
+  const providerStatus =
+    event.status ||
+    (event.event === "payment.captured" || rzpPaymentEntity?.status === "captured"
+      ? "SUCCESS"
+      : event.event === "payment.failed" || rzpPaymentEntity?.status === "failed"
+      ? "FAILED"
+      : undefined);
+  const providerCurrency =
+    event.currency ||
+    rzpPaymentEntity?.currency;
+  const providerOrderId =
+    event.orderId ||
+    rzpPaymentEntity?.order_id;
 
   if (!bookingId || !transactionId) {
     throw new ApiError(400, "Missing required event fields (bookingId, transactionId).");
@@ -488,12 +526,20 @@ export const handlePaymentWebhook = async ({
           where: { transactionId },
         });
 
-        if (existingTx && existingTx.paymentStatus === "SUCCESS") {
-          return {
-            status: "ALREADY_PROCESSED",
-            paymentId: existingTx.id,
-            bookingId: existingTx.bookingId,
-          };
+        if (existingTx) {
+          if (existingTx.bookingId !== bookingId) {
+            throw new ApiError(
+              409,
+              "Transaction ID is already associated with another booking."
+            );
+          }
+          if (existingTx.paymentStatus === "SUCCESS") {
+            return {
+              status: "ALREADY_PROCESSED",
+              paymentId: existingTx.id,
+              bookingId: existingTx.bookingId,
+            };
+          }
         }
 
         const booking = await tx.booking.findUnique({
@@ -505,15 +551,40 @@ export const handlePaymentWebhook = async ({
           throw new ApiError(404, `Booking ${bookingId} not found.`);
         }
 
-        if (booking.status === "CONFIRMED" && booking.payment?.paymentStatus === "SUCCESS") {
+        let paymentRecord = booking.payment;
+        if (!paymentRecord) {
+          paymentRecord = await tx.payment.create({
+            data: {
+              bookingId: booking.id,
+              amount: booking.amount,
+              currency: "INR",
+              paymentMethod: "UPI",
+              paymentStatus: "PENDING",
+            },
+          });
+        }
+
+        // 3. Prevent old or out-of-order callback from reversing an already successful terminal state
+        if (paymentRecord.paymentStatus === "SUCCESS") {
           return {
-            status: "ALREADY_CONFIRMED",
-            paymentId: booking.payment.id,
+            status: "ALREADY_PROCESSED",
+            paymentId: paymentRecord.id,
             bookingId: booking.id,
           };
         }
 
-        // 3. Server-Side Amount Verification: Never trust client-supplied amounts
+        // 4. Server-Side Currency Verification: Reconcile with trusted server currency
+        if (
+          event.currency &&
+          event.currency.toUpperCase() !== paymentRecord.currency.toUpperCase()
+        ) {
+          throw new ApiError(
+            400,
+            `Currency mismatch: expected ${paymentRecord.currency}, received ${event.currency}.`
+          );
+        }
+
+        // 5. Server-Side Amount Verification: Never trust client-supplied amounts
         const expectedAmount = Number(booking.amount);
         const receivedAmount = Number(providerAmount);
 
@@ -524,10 +595,35 @@ export const handlePaymentWebhook = async ({
           );
         }
 
-        // 4. Handle failed/canceled payment status from provider
+        // 6. Handle late callback after cancellation or access window expiry according to explicit business policy
+        if (
+          booking.status === "CANCELLED" ||
+          booking.status === "EXPIRED" ||
+          booking.endTime <= new Date()
+        ) {
+          const refundedPayment = await tx.payment.update({
+            where: { id: paymentRecord.id },
+            data: {
+              paymentStatus: "REFUNDED",
+              transactionId,
+              paidAt: new Date(),
+            },
+          });
+
+          return {
+            status: "BOOKING_INELIGIBLE_FOR_CONFIRMATION",
+            message:
+              "Payment captured for an expired or cancelled booking; flagged for refund.",
+            paymentId: refundedPayment.id,
+            bookingId: booking.id,
+            bookingStatus: booking.status,
+          };
+        }
+
+        // 7. Handle failed/canceled payment status from provider
         if (providerStatus !== "SUCCESS" && providerStatus !== "CAPTURED") {
           const failedPayment = await tx.payment.update({
-            where: { id: booking.payment.id },
+            where: { id: paymentRecord.id },
             data: {
               paymentStatus: "FAILED",
               transactionId,
@@ -540,9 +636,9 @@ export const handlePaymentWebhook = async ({
           };
         }
 
-        // 5. Successful payment confirmation & Outbox event
+        // 8. Successful payment confirmation & Outbox event
         const updatedPayment = await tx.payment.update({
-          where: { id: booking.payment.id },
+          where: { id: paymentRecord.id },
           data: {
             paymentStatus: "SUCCESS",
             transactionId,
@@ -584,6 +680,388 @@ export const handlePaymentWebhook = async ({
   });
 };
 
+/**
+ * Create a real Razorpay Order for frontend client checkout.
+ */
+export const createRazorpayOrder = async (bookingId, userId) => {
+  return prisma.$transaction(async (tx) => {
+    const booking = await getCustomerBooking(tx, bookingId, userId);
+
+    if (booking.status !== "PENDING") {
+      throw new ApiError(400, "Razorpay order can only be created for pending bookings.");
+    }
+
+    if (booking.endTime <= new Date()) {
+      throw new ApiError(409, "This booking's access window has expired.");
+    }
+
+    if (!booking.amount || Number(booking.amount) <= 0) {
+      throw new ApiError(400, "Invalid booking amount configured for this toilet.");
+    }
+
+    if (booking.payment?.paymentStatus === "SUCCESS") {
+      throw new ApiError(409, "This booking is already paid.");
+    }
+
+    const amountInPaise = Math.round(Number(booking.amount) * 100);
+    const receipt = `rcpt_${booking.id.slice(-30)}`;
+
+    // Method A: Razorpay Route split calculation
+    // Platform fee percentage (default 10%, configurable via PLATFORM_FEE_PERCENT)
+    const PLATFORM_FEE_PERCENT = Number(process.env.PLATFORM_FEE_PERCENT || 10);
+    const platformFeeInPaise = Math.round((amountInPaise * PLATFORM_FEE_PERCENT) / 100);
+    const ownerShareInPaise = amountInPaise - platformFeeInPaise;
+    const ownerShare = (ownerShareInPaise / 100).toFixed(2);
+    const platformFee = (platformFeeInPaise / 100).toFixed(2);
+
+    const owner = booking.toilet.owner;
+    let transfers = undefined;
+
+    // Direct split to that particular toilet owner if onboarded to Razorpay Route
+    if (owner?.razorpayAccountId) {
+      transfers = [
+        {
+          account: owner.razorpayAccountId,
+          amount: ownerShareInPaise,
+          currency: "INR",
+          on_hold: 1, // Funds held in escrow until restroom usage session completes!
+          notes: {
+            bookingId: booking.id,
+            toiletId: booking.toiletId,
+            ownerId: owner.id,
+          },
+        },
+      ];
+    }
+
+    let order;
+    const razorpay = getRazorpayInstance();
+    const isMock = isDevelopmentMockEnabled();
+
+    const orderPayload = {
+      amount: amountInPaise,
+      currency: "INR",
+      receipt,
+      notes: {
+        bookingId: booking.id,
+        userId: booking.userId,
+        toiletId: booking.toiletId,
+        ownerId: owner?.id,
+        ownerRazorpayAccountId: owner?.razorpayAccountId || null,
+      },
+      ...(transfers ? { transfers } : {}),
+    };
+
+    if (razorpay && !isMock) {
+      try {
+        order = await razorpay.orders.create(orderPayload);
+      } catch (err) {
+        throw new ApiError(502, `Failed to create Razorpay Route order: ${err.message || err}`);
+      }
+    } else {
+      // In development / test environment with mock mode enabled, generate valid Razorpay order structure
+      order = {
+        id: `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        entity: "order",
+        amount: amountInPaise,
+        currency: "INR",
+        receipt,
+        status: "created",
+        transfers,
+      };
+    }
+
+    // Persist orderId, ownerShare, platformFee, and transferStatus on Payment record
+    const existingPayment = booking.payment;
+    let paymentRecord;
+    const paymentData = {
+      orderId: order.id,
+      amount: booking.amount,
+      currency: "INR",
+      paymentMethod: "UPI",
+      paymentStatus: "PENDING",
+      ownerShare,
+      platformFee,
+      transferStatus: owner?.razorpayAccountId ? "HELD" : null,
+    };
+
+    if (existingPayment) {
+      paymentRecord = await tx.payment.update({
+        where: { id: existingPayment.id },
+        data: paymentData,
+      });
+    } else {
+      paymentRecord = await tx.payment.create({
+        data: {
+          bookingId: booking.id,
+          ...paymentData,
+        },
+      });
+    }
+
+    return {
+      orderId: order.id,
+      amount: Number(booking.amount),
+      amountInPaise,
+      currency: "INR",
+      keyId: process.env.RAZORPAY_KEY_ID || "rzp_test_dev",
+      bookingId: booking.id,
+      paymentId: paymentRecord.id,
+      split: {
+        ownerId: owner?.id,
+        ownerAccountId: owner?.razorpayAccountId || null,
+        ownerShare: Number(ownerShare),
+        ownerShareInPaise,
+        platformFee: Number(platformFee),
+        platformFeeInPaise,
+        transferStatus: owner?.razorpayAccountId ? "HELD" : "DIRECT",
+        onHold: Boolean(owner?.razorpayAccountId),
+      },
+    };
+  });
+};
+
+/**
+ * Verify client-side Razorpay modal completion signature.
+ */
+export const verifyRazorpayPayment = async ({
+  bookingId,
+  userId,
+  razorpayOrderId,
+  razorpayPaymentId,
+  razorpaySignature,
+}) => {
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (!keySecret) {
+    throw new ApiError(500, "Razorpay key secret is not configured.");
+  }
+
+  // 1. Verify Razorpay cryptographic signature: HMAC-SHA256(order_id + "|" + payment_id, secret)
+  const text = `${razorpayOrderId}|${razorpayPaymentId}`;
+  const expectedSignature = crypto
+    .createHmac("sha256", keySecret)
+    .update(text)
+    .digest("hex");
+
+  const sigBuffer = Buffer.from(razorpaySignature);
+  const expBuffer = Buffer.from(expectedSignature);
+
+  if (
+    sigBuffer.length !== expBuffer.length ||
+    !crypto.timingSafeEqual(sigBuffer, expBuffer)
+  ) {
+    throw new ApiError(400, "Invalid Razorpay payment signature.");
+  }
+
+  return executeWithRetry(async () => {
+    return prisma.$transaction(
+      async (tx) => {
+        // 2. Idempotency Check: Don't process twice if already succeeded
+        const existingTx = await tx.payment.findFirst({
+          where: { transactionId: razorpayPaymentId },
+        });
+
+        if (existingTx) {
+          if (existingTx.bookingId !== bookingId) {
+            throw new ApiError(
+              409,
+              "Razorpay payment ID is already associated with another booking."
+            );
+          }
+          if (existingTx.paymentStatus === "SUCCESS") {
+            const booking = await tx.booking.findUnique({
+              where: { id: bookingId },
+            });
+            return {
+              status: "ALREADY_PROCESSED",
+              booking,
+              payment: existingTx,
+            };
+          }
+        }
+
+        const booking = await getCustomerBooking(tx, bookingId, userId);
+
+        if (booking.status === "CONFIRMED" && booking.payment?.paymentStatus === "SUCCESS") {
+          return {
+            status: "ALREADY_CONFIRMED",
+            booking,
+            payment: booking.payment,
+          };
+        }
+
+        // 3. Late callback handling for cancelled / expired bookings
+        if (
+          booking.status === "CANCELLED" ||
+          booking.status === "EXPIRED" ||
+          booking.endTime <= new Date()
+        ) {
+          const refundedPayment = await tx.payment.update({
+            where: { id: booking.payment.id },
+            data: {
+              paymentStatus: "REFUNDED",
+              orderId: razorpayOrderId,
+              transactionId: razorpayPaymentId,
+              paidAt: new Date(),
+            },
+          });
+
+          return {
+            status: "BOOKING_INELIGIBLE_FOR_CONFIRMATION",
+            message:
+              "Payment captured for an expired or cancelled booking; flagged for refund.",
+            booking,
+            payment: refundedPayment,
+          };
+        }
+
+        // 4. Update Payment to SUCCESS and Booking to CONFIRMED
+        const updatedPayment = await tx.payment.update({
+          where: { id: booking.payment.id },
+          data: {
+            paymentStatus: "SUCCESS",
+            orderId: razorpayOrderId,
+            transactionId: razorpayPaymentId,
+            paidAt: new Date(),
+          },
+        });
+
+        const updatedBooking = await tx.booking.update({
+          where: { id: booking.id },
+          data: { status: "CONFIRMED" },
+          include: {
+            toilet: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                city: true,
+                state: true,
+                price: true,
+              },
+            },
+          },
+        });
+
+        // 5. Emit outbox event atomically
+        await recordOutboxEvent(tx, {
+          eventType: "payment.succeeded.v1",
+          aggregateId: booking.id,
+          data: {
+            bookingId: booking.id,
+            paymentId: updatedPayment.id,
+            customerId: booking.userId,
+            toiletId: booking.toiletId,
+            amount: updatedPayment.amount.toString(),
+            currency: updatedPayment.currency,
+            paymentStatus: updatedPayment.paymentStatus,
+            bookingStatus: updatedBooking.status,
+            paidAt: updatedPayment.paidAt.toISOString(),
+          },
+        });
+
+        return {
+          status: "SUCCESS",
+          booking: updatedBooking,
+          payment: updatedPayment,
+        };
+      },
+      {
+        isolationLevel: "Serializable",
+      }
+    );
+  });
+};
+
+/**
+ * Onboard or link a toilet owner to Razorpay Route for split payouts.
+ */
+export const linkOwnerRazorpayAccount = async (ownerId, { businessName, payoutUpiId } = {}) => {
+  const owner = await prisma.user.findUnique({
+    where: { id: ownerId },
+  });
+
+  if (!owner) {
+    throw new ApiError(404, "User not found.");
+  }
+
+  if (owner.role !== "OWNER") {
+    throw new ApiError(403, "Only toilet owners can configure a Razorpay Route payout account.");
+  }
+
+  let accountId = owner.razorpayAccountId;
+  const razorpay = getRazorpayInstance();
+  const isMock = isDevelopmentMockEnabled();
+
+  if (!accountId) {
+    if (razorpay && !isMock) {
+      try {
+        const account = await razorpay.accounts.create({
+          type: "route",
+          email: owner.email,
+          phone: owner.phoneNumber || "9876543210",
+          legal_business_name: businessName || owner.fullName,
+          business_type: "individual",
+          contact_name: owner.fullName,
+          profile: {
+            category: "services",
+            subcategory: "sanitation",
+          },
+        });
+        accountId = account.id;
+      } catch (err) {
+        throw new ApiError(502, `Failed to create Razorpay Route linked account: ${err.message || err}`);
+      }
+    } else {
+      accountId = `acc_${randomUUID().replace(/-/g, "").slice(0, 14)}`;
+    }
+  }
+
+  const updatedOwner = await prisma.user.update({
+    where: { id: ownerId },
+    data: {
+      razorpayAccountId: accountId,
+      businessName: businessName || owner.businessName,
+      payoutUpiId: payoutUpiId || owner.payoutUpiId,
+    },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      role: true,
+      razorpayAccountId: true,
+      businessName: true,
+      payoutUpiId: true,
+    },
+  });
+
+  return updatedOwner;
+};
+
+/**
+ * Get linked Razorpay Route account details for an owner.
+ */
+export const getOwnerRazorpayAccount = async (ownerId) => {
+  const owner = await prisma.user.findUnique({
+    where: { id: ownerId },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      role: true,
+      razorpayAccountId: true,
+      businessName: true,
+      payoutUpiId: true,
+    },
+  });
+
+  if (!owner) {
+    throw new ApiError(404, "Owner not found.");
+  }
+
+  return owner;
+};
+
 export default {
   initiatePayment,
   simulatePaymentResult,
@@ -591,4 +1069,8 @@ export default {
   processPayment,
   getPaymentByBookingId,
   handlePaymentWebhook,
+  createRazorpayOrder,
+  verifyRazorpayPayment,
+  linkOwnerRazorpayAccount,
+  getOwnerRazorpayAccount,
 };

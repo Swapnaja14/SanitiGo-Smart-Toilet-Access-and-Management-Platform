@@ -24,9 +24,14 @@ import adminRoutes from "./routes/admin.routes.js";
 
 const app = express();
 app.use(cors());
-app.use(helmet());
-app.use(express.json());
-app.use(express.urlencoded({extended: true}));
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // app.use(morgan("dev"))

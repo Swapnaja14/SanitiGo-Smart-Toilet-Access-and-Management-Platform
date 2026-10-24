@@ -414,6 +414,7 @@ const cancelBooking = async (userId, bookingId) => {
                         },
                         data: {
                             paymentStatus: "REFUNDED",
+                            transferStatus: booking.payment.transferStatus ? "REVERSED" : null,
                         },
                     });
                     cancelledBooking.payment.paymentStatus = "REFUNDED";

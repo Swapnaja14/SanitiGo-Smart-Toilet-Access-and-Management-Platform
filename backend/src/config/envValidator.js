@@ -46,6 +46,11 @@ export function validateEnv() {
     if (process.env.PAYMENT_MODE === "mock") {
       errors.push("PAYMENT_MODE='mock' is strictly prohibited in production.");
     }
+    if (!process.env.PAYMENT_WEBHOOK_SECRET) {
+      errors.push(
+        "PAYMENT_WEBHOOK_SECRET is required in production for verified payment processing."
+      );
+    }
   }
 
   if (errors.length > 0) {

@@ -107,6 +107,11 @@ model User {
   updatedAt    DateTime  @updatedAt
   lastLogin    DateTime?
 
+  // Razorpay Route Owner Payout Details
+  razorpayAccountId String? @unique
+  businessName      String?
+  payoutUpiId       String?
+
   // Relations
   toilets       Toilet[]
   bookings      Booking[]
@@ -255,8 +260,15 @@ model Payment {
   paymentMethod PaymentMethod
   paymentStatus PaymentStatus @default(PENDING)
 
+  orderId       String?   @unique
   transactionId String?   @unique
   paidAt        DateTime?
+
+  // Razorpay Route Split Transfer Fields
+  transferId     String?   @unique
+  ownerShare     Decimal?  @db.Decimal(10, 2)
+  platformFee    Decimal?  @db.Decimal(10, 2)
+  transferStatus String?   // HELD, SETTLED, REVERSED
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

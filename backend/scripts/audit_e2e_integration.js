@@ -1,4 +1,6 @@
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import bcrypt from "bcryptjs";
 import request from "supertest";
 import app from "../src/app.js";
@@ -95,8 +97,11 @@ async function runEndToEndIntegrationAudit() {
     // =========================================================================
     console.log("--- SECTION 1: Service Configuration Audit (Node.js & Java) ---");
 
-    const javaConfig = fs.readFileSync("../notification-service/src/main/resources/application.yml", "utf-8");
-    const nodeEnv = fs.readFileSync(".env", "utf-8");
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+    const javaConfigPath = path.resolve(repoRoot, "notification-service/src/main/resources/application.yml");
+    const nodeEnvPath = path.resolve(repoRoot, "backend/.env");
+    const javaConfig = fs.readFileSync(javaConfigPath, "utf-8");
+    const nodeEnv = fs.readFileSync(nodeEnvPath, "utf-8");
 
     // 1.1 Database URL consistency
     const nodeDbMatch = nodeEnv.match(/DATABASE_URL=["']?([^"'\r\n]+)["']?/);

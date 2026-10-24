@@ -14,6 +14,7 @@ import {
   initiatePaymentSchema,
   mockPaymentResultSchema,
   paymentWebhookSchema,
+  verifyRazorpayPaymentSchema,
 } from "../validators/payment.schema.js";
 import ApiError from "../utils/ApiError.js";
 
@@ -34,6 +35,21 @@ router.post(
   paymentController.handleWebhook
 );
 
+// Owner Razorpay Route Payout Account Setup
+router.post(
+  "/owner/payout-account",
+  authenticate,
+  authorizeRoles("OWNER"),
+  paymentController.linkOwnerPayoutAccount
+);
+
+router.get(
+  "/owner/payout-account",
+  authenticate,
+  authorizeRoles("OWNER"),
+  paymentController.getOwnerPayoutAccount
+);
+
 router.use(authenticate);
 router.use(authorizeRoles("USER"));
 
@@ -42,6 +58,18 @@ router.post(
   "/:bookingId/payment",
   validate(initiatePaymentSchema),
   initiatePayment
+);
+
+// Real Razorpay gateway endpoints
+router.post(
+  "/:bookingId/payment/razorpay-order",
+  paymentController.createRazorpayOrder
+);
+
+router.post(
+  "/:bookingId/payment/razorpay-verify",
+  validate(verifyRazorpayPaymentSchema),
+  paymentController.verifyRazorpayPayment
 );
 
 router.post(
