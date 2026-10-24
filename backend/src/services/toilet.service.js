@@ -312,6 +312,11 @@ const searchToilets = async(query, page=1, limit=10, filters={}) => {
         where.isAvailable = true;
     }
 
+    // Verification filter
+    if (filters.isVerified !== undefined) {
+        where.isVerified = filters.isVerified;
+    }
+
     // Amenity filter
     if (filters.amenityIds && filters.amenityIds.length > 0) {
         where.amenities = {

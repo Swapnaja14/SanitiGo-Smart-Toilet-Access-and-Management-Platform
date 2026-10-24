@@ -8,19 +8,28 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 @Service
 public class EventProcessingService {
 
-    private static final Logger log = LoggerFactory.getLogger(EventProcessingService.class);
+    private static final Logger log =
+            LoggerFactory.getLogger(EventProcessingService.class);
 
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbcTemplate;
+    private final NotificationWriter notificationWriter;
+    private final EmailNotificationService emailNotificationService;
 
     public EventProcessingService(
             ObjectMapper objectMapper,
-            JdbcTemplate jdbcTemplate) {
+            JdbcTemplate jdbcTemplate,
+            NotificationWriter notificationWriter,
+            EmailNotificationService emailNotificationService) {
         this.objectMapper = objectMapper;
         this.jdbcTemplate = jdbcTemplate;
+        this.notificationWriter = notificationWriter;
+        this.emailNotificationService = emailNotificationService;
     }
 
     @Transactional
@@ -29,20 +38,25 @@ public class EventProcessingService {
 
         String eventId = requiredText(event, "eventId");
         String eventType = requiredText(event, "eventType");
+        requiredText(event, "occurredAt");
+        requiredVersion(event, "version");
 
-        log.info("[Consumer:Processing] Starting event processing eventId={}, eventType={}",
-                eventId, eventType);
+        log.info(
+            "[Consumer:Processing] Starting eventId={}, eventType={}",
+            eventId, eventType
+        );
 
         JsonNode data = event.get("data");
+
         if (data == null || !data.isObject()) {
             throw new IllegalArgumentException(
-                "Event must contain a data object");
+                "Event must contain a data object"
+            );
         }
 
-        // Validate the complete supported event before claiming it.
         validateEvent(eventType, data);
 
-        // Atomic claim: the primary key prevents concurrent duplicates.
+        // Claim the event in the same transaction as notification creation.
         int inserted = jdbcTemplate.update("""
             INSERT INTO processed_event (event_id, event_type)
             VALUES (?, ?)
@@ -50,18 +64,19 @@ public class EventProcessingService {
             """, eventId, eventType);
 
         if (inserted == 0) {
-            // Already committed by a previous successful attempt.
-            log.warn("[Consumer:DuplicateIgnored] Event already committed; ignoring duplicate eventId={}, eventType={}",
-                    eventId, eventType);
+            log.info(
+                "[Consumer:DuplicateIgnored] eventId={}, eventType={}",
+                eventId, eventType
+            );
             return;
         }
 
-        // All database-side event effects must run here, in this
-        // same transaction, before the method returns successfully.
-        handleEvent(eventType, data);
+        handleEvent(eventId, eventType, data);
 
-        log.info("[Consumer:Committed] Successfully committed eventId={}, eventType={}",
-                eventId, eventType);
+        log.info(
+            "[Consumer:Committed] eventId={}, eventType={}",
+            eventId, eventType
+        );
     }
 
     private void validateEvent(
@@ -70,54 +85,99 @@ public class EventProcessingService {
 
         switch (eventType) {
             case "booking.created.v1",
-                 "payment.succeeded.v1",
-                 "booking.cancelled.v1" ->
+                 "booking.cancelled.v1" -> {
                 requiredText(data, "bookingId");
+                requiredText(data, "customerId");
+            }
 
-            case "session.started.v1",
-                 "session.completed.v1" ->
+            case "payment.succeeded.v1" -> {
+                requiredText(data, "bookingId");
+                requiredText(data, "paymentId");
+                requiredText(data, "customerId");
+            }
+
+            case "session.started.v1" -> {
                 requiredText(data, "sessionId");
+                requiredText(data, "customerId");
+            }
+
+            case "session.completed.v1" -> {
+                requiredText(data, "sessionId");
+                requiredText(data, "bookingId");
+                requiredText(data, "customerId");
+            }
 
             default -> throw new IllegalArgumentException(
-                "Unsupported event type: " + eventType);
+                "Unsupported event type: " + eventType
+            );
         }
     }
 
     private void handleEvent(
+            String eventId,
             String eventType,
-            JsonNode data) {
+            JsonNode data) throws Exception {
 
-        // The current MVP only logs events.
-        // Add transactional database effects here when required.
         switch (eventType) {
             case "booking.created.v1" ->
-                System.out.println(
-                    "Booking created: " +
-                    data.path("bookingId").asText());
+                createNotification(
+                    eventId,
+                    data,
+                    "BOOKING_CREATED",
+                    "Booking created",
+                    "Your SanitiGo booking has been created."
+                );
 
             case "payment.succeeded.v1" ->
-                System.out.println(
-                    "Payment succeeded: " +
-                    data.path("bookingId").asText());
+                createNotification(
+                    eventId,
+                    data,
+                    "PAYMENT_SUCCEEDED",
+                    "Payment successful",
+                    "Your payment for the SanitiGo booking was successful."
+                );
 
             case "booking.cancelled.v1" ->
-                System.out.println(
-                    "Booking cancelled: " +
-                    data.path("bookingId").asText());
-
-            case "session.started.v1" ->
-                System.out.println(
-                    "Session started: " +
-                    data.path("sessionId").asText());
+                createNotification(
+                    eventId,
+                    data,
+                    "BOOKING_CANCELLED",
+                    "Booking cancelled",
+                    "Your SanitiGo booking has been cancelled."
+                );
 
             case "session.completed.v1" ->
-                System.out.println(
-                    "Session completed: " +
-                    data.path("sessionId").asText());
+                createNotification(
+                    eventId,
+                    data,
+                    "SESSION_COMPLETED",
+                    "Session completed",
+                    "Your SanitiGo usage session has been completed."
+                );
+
+            case "session.started.v1" ->
+                log.info(
+                    "[Consumer:SessionStarted] sessionId={}",
+                    data.path("sessionId").asText()
+                );
 
             default -> throw new IllegalArgumentException(
-                "Unsupported event type: " + eventType);
+                "Unsupported event type: " + eventType
+            );
         }
+
+        // Send email notification. Failures are isolated and will not break event processing.
+        emailNotificationService.sendNotificationEmail(eventId, eventType, data);
+    }
+
+    private void createNotification(
+            String eventId,
+            JsonNode data,
+            String type,
+            String title,
+            String message) throws Exception {
+
+        notificationWriter.writeNotification(eventId, data, type, title, message);
     }
 
     private String requiredText(
@@ -130,9 +190,25 @@ public class EventProcessingService {
                 !value.isTextual() ||
                 value.asText().isBlank()) {
             throw new IllegalArgumentException(
-                "Missing or invalid field: " + field);
+                "Missing or invalid field: " + field
+            );
         }
 
         return value.asText();
+    }
+
+    private void requiredVersion(
+            JsonNode node,
+            String field) {
+
+        JsonNode value = node.get(field);
+
+        if (value == null ||
+                value.isNull() ||
+                (!value.isNumber() && (!value.isTextual() || value.asText().isBlank()))) {
+            throw new IllegalArgumentException(
+                "Missing or invalid field: " + field
+            );
+        }
     }
 }

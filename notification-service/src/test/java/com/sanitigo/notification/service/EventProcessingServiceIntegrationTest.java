@@ -11,6 +11,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.test.context.ActiveProfiles;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
@@ -22,12 +24,15 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
+@ActiveProfiles("test")
 @Import(EventProcessingServiceIntegrationTest.TestConfig.class)
 public class EventProcessingServiceIntegrationTest {
 
     static {
         java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));
     }
+
+    private static final String TEST_CUSTOMER_ID = "test-customer-notif-uuid";
 
     @Autowired
     private EventProcessingService eventProcessingService;
@@ -57,15 +62,38 @@ public class EventProcessingServiceIntegrationTest {
         }
 
         @Transactional
-        public void claimAndThrow(String eventId, String eventType) {
+        public void claimAndThrow(String eventId, String eventType, String userId) {
             jdbcTemplate.update("""
                 INSERT INTO processed_event (event_id, event_type)
                 VALUES (?, ?)
                 ON CONFLICT (event_id) DO NOTHING
                 """, eventId, eventType);
 
-            throw new RuntimeException("Simulated processing failure after claim");
+            jdbcTemplate.update("""
+                INSERT INTO "Notification"
+                    ("id", "userId", "eventId", "type",
+                     "title", "message", "data", "createdAt")
+                VALUES (?, ?, ?, 'BOOKING_CREATED'::"NotificationType",
+                        'Rollback Title', 'Rollback Message', '{}'::jsonb, NOW())
+                ON CONFLICT ("userId", "eventId") DO NOTHING
+                """,
+                UUID.randomUUID().toString(),
+                userId,
+                eventId
+            );
+
+            throw new RuntimeException("Simulated processing failure after claim and notification insertion");
         }
+    }
+
+    @BeforeEach
+    void setUp() {
+        // Ensure the foreign key reference user exists in the User table
+        jdbcTemplate.update("""
+            INSERT INTO "User" ("id", "email", "password", "fullName", "updatedAt")
+            VALUES (?, 'test-notif-user@sanitigo.com', 'password123', 'Test Notif User', NOW())
+            ON CONFLICT ("id") DO NOTHING
+            """, TEST_CUSTOMER_ID);
     }
 
     private byte[] createEventJson(String eventId, String eventType, Map<String, Object> data) throws Exception {
@@ -80,24 +108,38 @@ public class EventProcessingServiceIntegrationTest {
     }
 
     @Test
-    void validEvent_createsProcessedEventRecord() throws Exception {
+    void validEvent_createsProcessedEventAndNotification() throws Exception {
         String eventId = "test-valid-" + UUID.randomUUID();
-        byte[] message = createEventJson(eventId, "booking.created.v1", Map.of("bookingId", "b-123"));
+        byte[] message = createEventJson(eventId, "booking.created.v1", Map.of(
+                "bookingId", "b-123",
+                "customerId", TEST_CUSTOMER_ID
+        ));
 
         eventProcessingService.process(message);
 
-        Integer count = jdbcTemplate.queryForObject(
+        Integer processedCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM processed_event WHERE event_id = ?",
                 Integer.class,
                 eventId
         );
-        assertEquals(1, count);
+        assertEquals(1, processedCount);
+
+        Integer notifCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM \"Notification\" WHERE \"eventId\" = ? AND \"userId\" = ?",
+                Integer.class,
+                eventId,
+                TEST_CUSTOMER_ID
+        );
+        assertEquals(1, notifCount, "Notification row must be created in the same transaction.");
     }
 
     @Test
     void duplicateEvent_doesNotCreateDuplicateRecord() throws Exception {
         String eventId = "test-dup-" + UUID.randomUUID();
-        byte[] message = createEventJson(eventId, "booking.created.v1", Map.of("bookingId", "b-456"));
+        byte[] message = createEventJson(eventId, "booking.created.v1", Map.of(
+                "bookingId", "b-456",
+                "customerId", TEST_CUSTOMER_ID
+        ));
 
         eventProcessingService.process(message);
         eventProcessingService.process(message); // Second attempt
@@ -108,12 +150,22 @@ public class EventProcessingServiceIntegrationTest {
                 eventId
         );
         assertEquals(1, count);
+
+        Integer notifCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM \"Notification\" WHERE \"eventId\" = ?",
+                Integer.class,
+                eventId
+        );
+        assertEquals(1, notifCount, "Duplicate event delivery must not create duplicate notifications.");
     }
 
     @Test
     void unsupportedEventType_failsAndLeavesNoCommittedRecord() throws Exception {
         String eventId = "test-unsupported-" + UUID.randomUUID();
-        byte[] message = createEventJson(eventId, "unknown.event.v1", Map.of("bookingId", "b-789"));
+        byte[] message = createEventJson(eventId, "unknown.event.v1", Map.of(
+                "bookingId", "b-789",
+                "customerId", TEST_CUSTOMER_ID
+        ));
 
         assertThrows(IllegalArgumentException.class, () -> eventProcessingService.process(message));
 
@@ -123,12 +175,19 @@ public class EventProcessingServiceIntegrationTest {
                 eventId
         );
         assertEquals(0, count);
+
+        Integer notifCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM \"Notification\" WHERE \"eventId\" = ?",
+                Integer.class,
+                eventId
+        );
+        assertEquals(0, notifCount);
     }
 
     @Test
     void missingRequiredIdentifier_failsAndLeavesNoCommittedRecord() throws Exception {
         String eventId = "test-missing-id-" + UUID.randomUUID();
-        // booking.created.v1 missing bookingId
+        // booking.created.v1 missing bookingId and customerId
         byte[] message = createEventJson(eventId, "booking.created.v1", Map.of());
 
         assertThrows(IllegalArgumentException.class, () -> eventProcessingService.process(message));
@@ -139,6 +198,13 @@ public class EventProcessingServiceIntegrationTest {
                 eventId
         );
         assertEquals(0, count);
+
+        Integer notifCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM \"Notification\" WHERE \"eventId\" = ?",
+                Integer.class,
+                eventId
+        );
+        assertEquals(0, notifCount);
     }
 
     @Test
@@ -146,7 +212,7 @@ public class EventProcessingServiceIntegrationTest {
         String eventId = "test-rollback-" + UUID.randomUUID();
 
         assertThrows(RuntimeException.class, () ->
-                failingRollbackProcessor.claimAndThrow(eventId, "booking.created.v1")
+                failingRollbackProcessor.claimAndThrow(eventId, "booking.created.v1", TEST_CUSTOMER_ID)
         );
 
         Integer count = jdbcTemplate.queryForObject(
@@ -154,13 +220,24 @@ public class EventProcessingServiceIntegrationTest {
                 Integer.class,
                 eventId
         );
-        assertEquals(0, count, "Transaction must roll back; no committed record should exist.");
+        assertEquals(0, count, "processed_event claim must roll back; no committed record should exist.");
+
+        Integer notifCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM \"Notification\" WHERE \"eventId\" = ?",
+                Integer.class,
+                eventId
+        );
+        assertEquals(0, notifCount, "Notification insertion must roll back; no committed record should exist.");
     }
 
     @Test
     void concurrentDeliveries_claimAtMostOnce() throws Exception {
         String eventId = "test-concurrent-" + UUID.randomUUID();
-        byte[] message = createEventJson(eventId, "payment.succeeded.v1", Map.of("bookingId", "b-concurrent"));
+        byte[] message = createEventJson(eventId, "payment.succeeded.v1", Map.of(
+                "bookingId", "b-concurrent",
+                "paymentId", "pay-concurrent",
+                "customerId", TEST_CUSTOMER_ID
+        ));
 
         int threadCount = 4;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -190,5 +267,52 @@ public class EventProcessingServiceIntegrationTest {
                 eventId
         );
         assertEquals(1, count, "Concurrent deliveries must result in at most one committed record.");
+
+        Integer notifCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM \"Notification\" WHERE \"eventId\" = ?",
+                Integer.class,
+                eventId
+        );
+        assertEquals(1, notifCount, "Concurrent deliveries must result in at most one notification.");
+    }
+
+    @Test
+    void missingEnvelopeFields_failsAndLeavesNoCommittedRecord() throws Exception {
+        String eventId = "test-missing-envelope-" + UUID.randomUUID();
+        // Missing occurredAt and version
+        Map<String, Object> payloadWithoutEnvelope = Map.of(
+                "eventId", eventId,
+                "eventType", "booking.created.v1",
+                "data", Map.of("bookingId", "b-env", "customerId", TEST_CUSTOMER_ID)
+        );
+        byte[] message = objectMapper.writeValueAsString(payloadWithoutEnvelope).getBytes(StandardCharsets.UTF_8);
+
+        assertThrows(IllegalArgumentException.class, () -> eventProcessingService.process(message));
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM processed_event WHERE event_id = ?",
+                Integer.class,
+                eventId
+        );
+        assertEquals(0, count);
+    }
+
+    @Test
+    void paymentSucceededMissingPaymentId_failsAndLeavesNoCommittedRecord() throws Exception {
+        String eventId = "test-missing-payid-" + UUID.randomUUID();
+        // payment.succeeded.v1 missing paymentId
+        byte[] message = createEventJson(eventId, "payment.succeeded.v1", Map.of(
+                "bookingId", "b-pay",
+                "customerId", TEST_CUSTOMER_ID
+        ));
+
+        assertThrows(IllegalArgumentException.class, () -> eventProcessingService.process(message));
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM processed_event WHERE event_id = ?",
+                Integer.class,
+                eventId
+        );
+        assertEquals(0, count);
     }
 }

@@ -17,6 +17,9 @@ import paymentRoutes from "./routes/payment.routes.js";
 import ownerTokenRoutes from "./routes/ownerToken.routes.js";
 import usageSessionRoutes from "./routes/usageSession.routes.js";
 import sessionRoutes from "../routes/session.routes.js";
+import notificationRoutes from "./routes/notification.routes.js";
+import reviewRoutes from "./routes/review.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
 
 
 const app = express();
@@ -68,6 +71,10 @@ app.use(
     swaggerUi.setup(swaggerSpec)
 );
 
+import { globalApiRateLimiter } from "./middlewares/rateLimiter.js";
+
+app.use("/api", globalApiRateLimiter);
+
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/toilets", toiletRoutes);
 app.use("/api/v1/favorites", favoriteRoutes);
@@ -82,6 +89,12 @@ app.use("/api/v1/owner", ownerTokenRoutes);
 app.use("/api/owner/sessions", usageSessionRoutes);
 app.use("/api/v1/owner/sessions", usageSessionRoutes);
 app.use("/api/v1/sessions", sessionRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/v1/notifications", notificationRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/v1/reviews", reviewRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/v1/admin", adminRoutes);
 
 app.use(notFound);
 app.use(errorHandler);  

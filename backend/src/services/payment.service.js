@@ -398,6 +398,22 @@ export const processPayment = async (userId, bookingId, paymentMethod) => {
           },
         });
 
+        await recordOutboxEvent(tx, {
+          eventType: "payment.succeeded.v1",
+          aggregateId: booking.id,
+          data: {
+            bookingId: booking.id,
+            paymentId: payment.id,
+            customerId: booking.userId,
+            toiletId: booking.toiletId,
+            amount: payment.amount.toString(),
+            currency: payment.currency,
+            paymentStatus: payment.paymentStatus,
+            bookingStatus: confirmedBooking.status,
+            paidAt: payment.paidAt.toISOString(),
+          },
+        });
+
         return {
           booking: confirmedBooking,
           payment,

@@ -85,6 +85,13 @@ enum AmenityCategory {
   OTHER
 }
 
+enum NotificationType {
+  BOOKING_CREATED
+  PAYMENT_SUCCEEDED
+  BOOKING_CANCELLED
+  SESSION_COMPLETED
+}
+
 model User {
   id           String    @id @default(cuid())
   fullName     String
@@ -101,12 +108,31 @@ model User {
   lastLogin    DateTime?
 
   // Relations
-  toilets    Toilet[]
-  bookings   Booking[]
-  sessions   UsageSession[]
-  reviews    Review[]
-  favorites  Favorite[]
-  complaints Complaint[]
+  toilets       Toilet[]
+  bookings      Booking[]
+  sessions      UsageSession[]
+  reviews       Review[]
+  favorites     Favorite[]
+  complaints    Complaint[]
+  notifications Notification[]
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  eventId   String
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([userId, readAt, createdAt])
+  @@index([eventId])
 }
 
 model Toilet {

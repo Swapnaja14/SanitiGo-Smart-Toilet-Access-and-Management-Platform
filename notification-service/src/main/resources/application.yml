@@ -23,9 +23,9 @@ spring:
         prefetch: 10
 
   datasource:
-    url: ${DATABASE_URL:${JDBC_DATABASE_URL:jdbc:postgresql://localhost:5433/sanitigo_test}}
-    username: ${DATABASE_USERNAME:postgres}
-    password: ${DATABASE_PASSWORD:postgres}
+    url: ${DATABASE_URL:${JDBC_DATABASE_URL:jdbc:postgresql://ep-steep-shadow-b3jp78tc-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require}}
+    username: ${DATABASE_USERNAME:neondb_owner}
+    password: ${DATABASE_PASSWORD:npg_iQh3g9Etkros}
     driver-class-name: org.postgresql.Driver
 
 sanitigo:
@@ -35,6 +35,17 @@ sanitigo:
     dead-letter-exchange: sanitigo.dlx
     dead-letter-queue: sanitigo.booking.events.dlq
     dead-letter-routing-key: sanitigo.booking.events.dlq
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:postgresql://localhost:5433/sanitigo_test
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
 
 ---
 spring:
