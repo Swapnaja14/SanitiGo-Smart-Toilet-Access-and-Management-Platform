@@ -60,7 +60,7 @@ export const createToiletSchema = z.object({
                 .optional(),
 });
 
-export const updateToiletSchema = createToiletSchema.partial();
+export const updateToiletSchema = createToiletSchema.partial().strict();
 
 
 export const operatingHoursSchema = z.object({

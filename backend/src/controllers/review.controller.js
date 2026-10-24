@@ -8,12 +8,13 @@ import {
 
 export const addReview = asyncHandler(async (req, res) => {
     const { toiletId } = req.params;
-    const { rating, comment, sessionId } = req.body;
+    const { rating, comment, sessionId, bookingId } = req.body;
 
     const review = await createOrUpdateReview(req.user.id, toiletId, {
-        rating: Number(rating),
+        rating: rating !== undefined && rating !== null ? Number(rating) : undefined,
         comment,
         sessionId,
+        bookingId,
     });
 
     res.status(200).json({

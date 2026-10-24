@@ -72,11 +72,44 @@ async function runRemainingModulesTests() {
         longitude: 72.8231,
         price: 25.0,
         isAvailable: true,
-        isVerified: false,
+        isVerified: true,
         qrToken: "QR_TEST_" + timestamp,
       },
     });
     console.log(`[Setup] Toilet ID: ${testToilet.id}\n`);
+
+    // Setup completed booking and session for review eligibility
+    const testBooking = await prisma.booking.create({
+      data: {
+        userId: testCustomer.id,
+        toiletId: testToilet.id,
+        amount: 25.0,
+        scheduledDate: new Date(),
+        startTime: new Date(Date.now() - 30 * 60 * 1000),
+        endTime: new Date(Date.now() + 30 * 60 * 1000),
+        token: "SG-" + Math.floor(100000 + Math.random() * 900000),
+        status: "COMPLETED",
+        payment: {
+          create: {
+            amount: 25.0,
+            currency: "INR",
+            paymentMethod: "UPI",
+            paymentStatus: "SUCCESS",
+            transactionId: "txn_rem_mod_" + timestamp,
+          },
+        },
+      },
+    });
+    await prisma.usageSession.create({
+      data: {
+        userId: testCustomer.id,
+        bookingId: testBooking.id,
+        toiletId: testToilet.id,
+        status: "COMPLETED",
+        startedAt: new Date(Date.now() - 20 * 60 * 1000),
+        endedAt: new Date(Date.now() - 5 * 60 * 1000),
+      },
+    });
 
     // =========================================================================
     // MODULE 1: REVIEWS AND RATINGS

@@ -9,6 +9,6 @@ query
 /migrations/
 temp.js
 temp/
-tests
+# tests/
 prisma/seed.js   
 .neon
