@@ -5,3 +5,4 @@ export { default as Badge } from './Badge';
 export { default as LoadingSpinner } from './LoadingSpinner';
 export { default as Skeleton, ToiletCardSkeleton } from './Skeleton';
 export { default as ToastContainer } from './Toast';
+export { default as ErrorBoundary } from './ErrorBoundary';
