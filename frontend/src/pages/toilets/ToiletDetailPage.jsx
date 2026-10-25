@@ -27,6 +27,7 @@ import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import BookingModal from '../../components/bookings/BookingModal';
+import ToiletReviewsSection from '../../components/reviews/ToiletReviewsSection';
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1200&q=80';
 
@@ -343,55 +344,17 @@ export default function ToiletDetailPage() {
           </div>
 
           {/* Reviews & Ratings Section */}
-          <div className="bg-white rounded-3xl border border-slate-200/90 p-6 sm:p-8 shadow-sm">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 tracking-tight mb-1">
-                  Hygiene Reviews & Ratings
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Verified customer feedback from completed sessions
-                </p>
-              </div>
-
-              <div className="flex items-center gap-1.5 text-slate-900 font-extrabold text-lg">
-                <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
-                <span>{toilet.averageRating ? Number(toilet.averageRating).toFixed(1) : '5.0'}</span>
-              </div>
-            </div>
-
-            {reviews.length > 0 ? (
-              <div className="space-y-4">
-                {reviews.map((rev) => (
-                  <div key={rev.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 font-bold text-xs flex items-center justify-center uppercase">
-                          {rev.user?.fullName ? rev.user.fullName.substring(0, 2) : 'U'}
-                        </div>
-                        <span className="text-xs font-bold text-slate-900">
-                          {rev.user?.fullName || 'Verified Customer'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1 text-amber-500 text-xs font-bold">
-                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                        <span>{rev.rating}</span>
-                      </div>
-                    </div>
-                    {rev.comment && (
-                      <p className="text-xs text-slate-600 leading-relaxed mb-2">{rev.comment}</p>
-                    )}
-                    <p className="text-[10px] text-slate-400">{formatDateTime(rev.createdAt)}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-xs text-slate-400">
-                <p>No written reviews yet for this restroom facility.</p>
-                <p className="mt-1">Be the first to leave feedback after completing your session!</p>
-              </div>
-            )}
-          </div>
+          <ToiletReviewsSection
+            toiletId={id}
+            toilet={toilet}
+            onRatingUpdated={(newSummary) => {
+              setToilet((prev) => ({
+                ...prev,
+                averageRating: newSummary.averageRating,
+                totalReviews: newSummary.totalReviews,
+              }));
+            }}
+          />
         </div>
 
         {/* Right Column: Sticky Booking Action Card */}

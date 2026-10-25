@@ -12,6 +12,7 @@ import {
   CreditCard,
   FileText,
   RotateCcw,
+  Star,
 } from 'lucide-react';
 import Badge from '../common/Badge';
 import Button from '../common/Button';
@@ -24,6 +25,7 @@ export default function BookingCard({
   onCancelBooking,
   onViewReceipt,
   onRetryPayment,
+  onWriteReview,
 }) {
   const { success } = useToast();
   const [copied, setCopied] = useState(false);
@@ -180,6 +182,20 @@ export default function BookingCard({
               title="View Payment Receipt"
             >
               Receipt
+            </Button>
+          )}
+
+          {/* Review Button for Completed Visits */}
+          {booking.status === 'COMPLETED' && (
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={Star}
+              className="text-amber-600 hover:bg-amber-50 hover:border-amber-300"
+              onClick={() => onWriteReview?.(booking)}
+              title="Rate and review this facility"
+            >
+              Review
             </Button>
           )}
 

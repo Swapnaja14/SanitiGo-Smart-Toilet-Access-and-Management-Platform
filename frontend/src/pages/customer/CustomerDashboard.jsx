@@ -24,6 +24,7 @@ import CancelBookingDialog from '../../components/bookings/CancelBookingDialog';
 import BookingModal from '../../components/bookings/BookingModal';
 import PaymentCheckoutModal from '../../components/payments/PaymentCheckoutModal';
 import PaymentReceiptModal from '../../components/payments/PaymentReceiptModal';
+import ReviewFormModal from '../../components/reviews/ReviewFormModal';
 
 export default function CustomerDashboard() {
   const { user } = useAuth();
@@ -40,6 +41,7 @@ export default function CustomerDashboard() {
   const [cancelDialogBooking, setCancelDialogBooking] = useState(null);
   const [checkoutModalBooking, setCheckoutModalBooking] = useState(null);
   const [receiptModalBooking, setReceiptModalBooking] = useState(null);
+  const [reviewModalBooking, setReviewModalBooking] = useState(null);
   const [bookingModalToilet, setBookingModalToilet] = useState(
     location.state?.selectedToilet || null
   );
@@ -268,6 +270,7 @@ export default function CustomerDashboard() {
               onCancelBooking={(booking) => setCancelDialogBooking(booking)}
               onViewReceipt={(booking) => setReceiptModalBooking(booking)}
               onRetryPayment={(booking) => setCheckoutModalBooking(booking)}
+              onWriteReview={(booking) => setReviewModalBooking(booking)}
             />
           ))}
         </div>
@@ -314,6 +317,18 @@ export default function CustomerDashboard() {
           onBookingSuccess={handleBookingCreated}
         />
       )}
+
+      {/* Review Form Modal for Completed Bookings */}
+      <ReviewFormModal
+        isOpen={!!reviewModalBooking}
+        onClose={() => setReviewModalBooking(null)}
+        toiletId={reviewModalBooking?.toiletId || reviewModalBooking?.toilet?.id}
+        toiletName={reviewModalBooking?.toilet?.name}
+        bookingId={reviewModalBooking?.id}
+        onSubmitted={() => {
+          fetchBookings();
+        }}
+      />
     </div>
   );
 }
