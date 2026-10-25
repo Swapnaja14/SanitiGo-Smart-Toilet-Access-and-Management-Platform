@@ -594,6 +594,57 @@ const updateAmenities = async(toiletId, ownerId, amenityIds) => {
 };
 
 
+const getAllAmenities = async () => {
+    return prisma.amenity.findMany({
+        orderBy: { name: 'asc' },
+    });
+};
+
+const getOwnerBookings = async (ownerId) => {
+    return prisma.booking.findMany({
+        where: {
+            toilet: {
+                ownerId,
+            },
+        },
+        include: {
+            toilet: {
+                select: {
+                    id: true,
+                    name: true,
+                    address: true,
+                    city: true,
+                },
+            },
+            payment: {
+                select: {
+                    id: true,
+                    amount: true,
+                    currency: true,
+                    paymentStatus: true,
+                    paymentMethod: true,
+                    paidAt: true,
+                },
+            },
+            user: {
+                select: {
+                    id: true,
+                    fullName: true,
+                    email: true,
+                    phoneNumber: true,
+                },
+            },
+            sessions: {
+                orderBy: { createdAt: "desc" },
+                take: 1,
+            },
+        },
+        orderBy: {
+            createdAt: "desc",
+        },
+    });
+};
+
 export default {
     createToilet,
     getOwnerToilets,
@@ -605,4 +656,6 @@ export default {
     getNearbyToilets,
     updateOperatingHours,
     updateAmenities,
+    getAllAmenities,
+    getOwnerBookings,
 };

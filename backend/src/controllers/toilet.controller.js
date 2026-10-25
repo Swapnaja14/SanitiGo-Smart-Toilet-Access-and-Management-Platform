@@ -235,3 +235,21 @@ export const updateAmenties = asyncHandler(async(req, res) => {
         data: amenities,
     });
 });
+
+export const getAllAmenities = asyncHandler(async (req, res) => {
+    const amenities = await toiletService.getAllAmenities();
+    res.status(200).json({
+        success: true,
+        message: "Amenities retrieved successfully",
+        data: amenities,
+    });
+});
+
+export const getOwnerBookings = asyncHandler(async (req, res) => {
+    const bookings = await toiletService.getOwnerBookings(req.user.id);
+    res.status(200).json({
+        success: true,
+        message: "Owner bookings retrieved successfully",
+        data: bookings,
+    });
+});
