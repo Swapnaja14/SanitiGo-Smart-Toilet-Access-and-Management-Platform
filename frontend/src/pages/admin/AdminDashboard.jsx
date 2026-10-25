@@ -1,91 +1,225 @@
-import React from 'react';
-import { ShieldCheck, Activity, Users, Building2, AlertTriangle, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  ShieldCheck,
+  Building2,
+  Users,
+  Activity,
+  RefreshCw,
+  Sliders,
+  CheckCircle2,
+  AlertTriangle,
+  Server,
+  Zap,
+} from 'lucide-react';
+import { adminApi } from '../../api';
 import { useAuth } from '../../hooks/useAuth';
+import { useToast } from '../../hooks/useToast';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
+import AdminKpiCards from '../../components/admin/AdminKpiCards';
+import UserDirectory from '../../components/admin/UserDirectory';
+import ToiletVerificationQueue from '../../components/admin/ToiletVerificationQueue';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
+  const { success, error: toastError } = useToast();
+
+  const [activeTab, setActiveTab] = useState('toilets'); // 'toilets' | 'users' | 'system'
+  const [stats, setStats] = useState(null);
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  // Fetch KPI statistics
+  const fetchStats = useCallback(async (showToast = false) => {
+    try {
+      setLoadingStats(true);
+      const data = await adminApi.getStats();
+      setStats(data);
+      if (showToast) {
+        success('Platform metrics synchronized successfully.');
+      }
+    } catch (err) {
+      console.error('Failed to load platform stats', err);
+      toastError('Could not sync platform metrics.');
+    } finally {
+      setLoadingStats(false);
+    }
+  }, [success, toastError]);
+
+  useEffect(() => {
+    fetchStats(false);
+  }, [fetchStats]);
+
+  const pendingVerificationCount = stats?.toilets?.unverified ?? 0;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
-      {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-navy-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 border border-slate-700/60">
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-semibold mb-3">
-            <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
-            System Administrator Console
+    <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-8 flex-1 w-full">
+      {/* Admin Hero Header */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-navy-950 p-6 sm:p-8 text-white shadow-xl border border-slate-700/60">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/20 border border-teal-500/30 text-teal-300 text-xs font-semibold">
+              <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
+              RBAC Guard: SuperUser Console
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+              Platform Administration & Moderation
+            </h1>
+            <p className="text-slate-300 text-xs sm:text-sm max-w-2xl leading-relaxed">
+              Oversee smart toilet facilities, review newly submitted partner listings, manage user
+              account statuses, and monitor real-time platform transactions.
+            </p>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-            Admin Center: {user?.fullName || 'SuperAdmin'}
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl">
-            Inspect platform diagnostics, verify newly registered toilet listings, toggle user account active states, and review transactional outbox health.
-          </p>
+
+          <div className="flex items-center gap-3 self-start md:self-auto">
+            <Button
+              variant="accent"
+              size="md"
+              icon={RefreshCw}
+              onClick={() => fetchStats(true)}
+              loading={loadingStats}
+              className="shadow-lg shadow-teal-500/20 bg-teal-500 hover:bg-teal-600 text-white font-bold"
+            >
+              Sync Metrics
+            </Button>
+          </div>
         </div>
-        <Button variant="accent" size="md" leftIcon={RefreshCw} className="shadow-lg shadow-teal-500/20">
-          Sync Metrics
-        </Button>
+
+        {/* Decorative backdrop glow */}
+        <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-5 mb-8">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 font-medium">RBAC Guard</p>
-            <p className="text-lg font-black text-slate-900">Enforced</p>
-          </div>
-        </div>
+      {/* Platform KPI Metrics */}
+      <AdminKpiCards stats={stats} loading={loadingStats} />
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
-            <Activity className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 font-medium">Operational Health</p>
-            <p className="text-lg font-black text-emerald-600">HEALTHY</p>
-          </div>
-        </div>
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-slate-200/80 gap-2 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setActiveTab('toilets')}
+          className={`flex items-center gap-2 pb-3.5 px-4 text-xs font-bold transition-all relative whitespace-nowrap ${
+            activeTab === 'toilets'
+              ? 'text-teal-700 border-b-2 border-teal-600'
+              : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Toilet Verification Queue</span>
+          {pendingVerificationCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white animate-pulse">
+              {pendingVerificationCount} Pending
+            </span>
+          )}
+        </button>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-            <Building2 className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 font-medium">Toilet Registry</p>
-            <p className="text-lg font-black text-slate-900">10 Verified</p>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setActiveTab('users')}
+          className={`flex items-center gap-2 pb-3.5 px-4 text-xs font-bold transition-all relative whitespace-nowrap ${
+            activeTab === 'users'
+              ? 'text-teal-700 border-b-2 border-teal-600'
+              : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>User Directory & Moderation</span>
+          {stats?.users?.total && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700">
+              {stats.users.total}
+            </span>
+          )}
+        </button>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-            <Users className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 font-medium">Outbox DLQ Depth</p>
-            <p className="text-lg font-black text-slate-900">0 Items</p>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setActiveTab('system')}
+          className={`flex items-center gap-2 pb-3.5 px-4 text-xs font-bold transition-all relative whitespace-nowrap ${
+            activeTab === 'system'
+              ? 'text-teal-700 border-b-2 border-teal-600'
+              : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <Activity className="w-4 h-4" />
+          <span>System & Operational Health</span>
+        </button>
       </div>
 
-      {/* Content card */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center shadow-sm">
-        <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-800 flex items-center justify-center mx-auto mb-4">
-          <ShieldCheck className="w-7 h-7 text-teal-600" />
+      {/* Tab Contents */}
+      {activeTab === 'toilets' && (
+        <ToiletVerificationQueue onStatsUpdated={() => fetchStats(false)} />
+      )}
+
+      {activeTab === 'users' && (
+        <UserDirectory onStatsUpdated={() => fetchStats(false)} />
+      )}
+
+      {activeTab === 'system' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white/90 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                PostgreSQL & Prisma
+              </span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Connected
+              </span>
+            </div>
+            <div className="space-y-1">
+              <p className="text-lg font-bold text-slate-900">Database Connection Pool</p>
+              <p className="text-xs text-slate-500">
+                Primary relational database storing users, verified toilets, tokens, and financial outbox events.
+              </p>
+            </div>
+            <div className="pt-3 border-t border-slate-100 text-xs text-slate-600 flex justify-between">
+              <span>Connection Latency:</span>
+              <span className="font-semibold text-slate-900">&lt; 15ms</span>
+            </div>
+          </div>
+
+          <div className="bg-white/90 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                RabbitMQ Message Broker
+              </span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                <Zap className="w-3 h-3 text-emerald-600" /> Active
+              </span>
+            </div>
+            <div className="space-y-1">
+              <p className="text-lg font-bold text-slate-900">Event-Driven Notification Stream</p>
+              <p className="text-xs text-slate-500">
+                Asynchronous event pub/sub connecting Express backend to Java Notification Service.
+              </p>
+            </div>
+            <div className="pt-3 border-t border-slate-100 text-xs text-slate-600 flex justify-between">
+              <span>Dead Letter Queue (DLQ):</span>
+              <span className="font-semibold text-emerald-700">0 Items</span>
+            </div>
+          </div>
+
+          <div className="bg-white/90 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Security & RBAC
+              </span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full">
+                <ShieldCheck className="w-3 h-3 text-teal-600" /> Enforced
+              </span>
+            </div>
+            <div className="space-y-1">
+              <p className="text-lg font-bold text-slate-900">Admin Authorization Filter</p>
+              <p className="text-xs text-slate-500">
+                All `/api/v1/admin/*` endpoints strictly require verified JWTs bearing `role === "ADMIN"`.
+              </p>
+            </div>
+            <div className="pt-3 border-t border-slate-100 text-xs text-slate-600 flex justify-between">
+              <span>Active SuperUser:</span>
+              <span className="font-semibold text-slate-900 truncate max-w-[140px]">
+                {user?.email || 'admin@sanitigo.com'}
+              </span>
+            </div>
+          </div>
         </div>
-        <h3 className="text-lg font-bold text-slate-900 mb-1">Admin Command Foundation Online</h3>
-        <p className="text-xs text-slate-500 max-w-md mx-auto mb-6">
-          The superuser authentication layer, authorization guard (`authorizeRoles("ADMIN")`), and administrative state monitors are initialized. Management tables for toilets, users, and audit logs will link in Part 4.
-        </p>
-        <div className="inline-flex items-center gap-2">
-          <Badge status="ACTIVE" size="md" withDot>
-            SUPERUSER PRIVILEGES READY
-          </Badge>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
