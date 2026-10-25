@@ -186,6 +186,9 @@ export async function createOrUpdateReview(userId, toiletId, { rating, comment, 
                 });
 
                 return review;
+            }, {
+                maxWait: 10000,
+                timeout: 15000,
             });
         } catch (error) {
             if (
@@ -333,6 +336,9 @@ export async function deleteReview(userId, reviewId, userRole = "USER") {
             });
 
             return { success: true, message: "Review deleted successfully." };
+        }, {
+            maxWait: 10000,
+            timeout: 15000,
         });
     });
 }
