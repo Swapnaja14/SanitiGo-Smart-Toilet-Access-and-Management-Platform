@@ -424,6 +424,8 @@ const cancelBooking = async (userId, bookingId) => {
             },
             {
                 isolationLevel: "Serializable",
+                maxWait: 10000,
+                timeout: 15000,
             }
         );
     });

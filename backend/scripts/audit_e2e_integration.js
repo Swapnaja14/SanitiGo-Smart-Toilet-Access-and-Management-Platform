@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -186,6 +189,9 @@ async function runEndToEndIntegrationAudit() {
         paymentMethod: "UPI",
         transactionId: `TXN_E2E_${timestamp}`,
       });
+    if (paymentRes.status !== 200) {
+      console.error("  [DEBUG paymentRes]", paymentRes.status, paymentRes.body);
+    }
     assert(paymentRes.status === 200, "Payment processed successfully (200 OK)");
     assert(paymentRes.body.data.booking.status === "CONFIRMED", "Booking status transitioned to CONFIRMED upon payment");
     assert(paymentRes.body.data.payment.paymentStatus === "SUCCESS", "Payment record marked as SUCCESS");
@@ -361,6 +367,9 @@ async function runEndToEndIntegrationAudit() {
     const cancelPaidRes = await request(app)
       .patch(`/api/v1/bookings/${paidBookingToCancel.id}/cancel`)
       .set("Authorization", `Bearer ${customerToken}`);
+    if (cancelPaidRes.status !== 200) {
+      console.error("  [DEBUG cancelPaidRes]", cancelPaidRes.status, cancelPaidRes.body);
+    }
     assert(cancelPaidRes.status === 200, "Paid booking cancelled successfully (200 OK)");
 
     const refundedPayment = await prisma.payment.findUnique({ where: { id: paymentToRefund.id } });
