@@ -22,6 +22,8 @@ import BookingCard from '../../components/bookings/BookingCard';
 import BookingPassModal from '../../components/bookings/BookingPassModal';
 import CancelBookingDialog from '../../components/bookings/CancelBookingDialog';
 import BookingModal from '../../components/bookings/BookingModal';
+import PaymentCheckoutModal from '../../components/payments/PaymentCheckoutModal';
+import PaymentReceiptModal from '../../components/payments/PaymentReceiptModal';
 
 export default function CustomerDashboard() {
   const { user } = useAuth();
@@ -36,6 +38,8 @@ export default function CustomerDashboard() {
   // Modals state
   const [passModalBooking, setPassModalBooking] = useState(null);
   const [cancelDialogBooking, setCancelDialogBooking] = useState(null);
+  const [checkoutModalBooking, setCheckoutModalBooking] = useState(null);
+  const [receiptModalBooking, setReceiptModalBooking] = useState(null);
   const [bookingModalToilet, setBookingModalToilet] = useState(
     location.state?.selectedToilet || null
   );
@@ -262,6 +266,8 @@ export default function CustomerDashboard() {
               booking={b}
               onViewPass={(booking) => setPassModalBooking(booking)}
               onCancelBooking={(booking) => setCancelDialogBooking(booking)}
+              onViewReceipt={(booking) => setReceiptModalBooking(booking)}
+              onRetryPayment={(booking) => setCheckoutModalBooking(booking)}
             />
           ))}
         </div>
@@ -280,6 +286,23 @@ export default function CustomerDashboard() {
         onClose={() => setCancelDialogBooking(null)}
         booking={cancelDialogBooking}
         onCancelled={handleBookingCancelled}
+      />
+
+      {/* Payment Checkout Modal (For retry, completing pending payment, or mock dev testing) */}
+      <PaymentCheckoutModal
+        isOpen={!!checkoutModalBooking}
+        onClose={() => setCheckoutModalBooking(null)}
+        booking={checkoutModalBooking}
+        onPaymentSuccess={() => {
+          fetchBookings();
+        }}
+      />
+
+      {/* Official Payment Receipt Modal */}
+      <PaymentReceiptModal
+        isOpen={!!receiptModalBooking}
+        onClose={() => setReceiptModalBooking(null)}
+        booking={receiptModalBooking}
       />
 
       {/* Booking Modal (If user was forwarded from a restroom detail page) */}

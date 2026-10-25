@@ -9,14 +9,22 @@ import {
   Building2,
   XCircle,
   Sparkles,
-  ChevronRight,
+  CreditCard,
+  FileText,
+  RotateCcw,
 } from 'lucide-react';
 import Badge from '../common/Badge';
 import Button from '../common/Button';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { useToast } from '../../hooks/useToast';
 
-export default function BookingCard({ booking, onViewPass, onCancelBooking }) {
+export default function BookingCard({
+  booking,
+  onViewPass,
+  onCancelBooking,
+  onViewReceipt,
+  onRetryPayment,
+}) {
   const { success } = useToast();
   const [copied, setCopied] = useState(false);
 
@@ -36,23 +44,38 @@ export default function BookingCard({ booking, onViewPass, onCancelBooking }) {
     booking.status === 'PENDING' || booking.status === 'CONFIRMED';
 
   const toilet = booking.toilet || {};
+  const paymentStatus =
+    booking.payment?.paymentStatus || booking.payment?.status;
+  const isPaid = paymentStatus === 'SUCCESS' || booking.status === 'CONFIRMED';
+  const isPaymentFailed = paymentStatus === 'FAILED';
+  const isPaymentPending = booking.status === 'PENDING' && !isPaid;
 
   return (
     <div className="bg-white rounded-3xl border border-slate-200/90 p-5 sm:p-6 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
       <div>
-        {/* Header row: Status and Price */}
+        {/* Header row: Status, Payment Badge, and Price */}
         <div className="flex items-center justify-between pb-3.5 mb-3.5 border-b border-slate-100">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge status={booking.status} withDot size="sm">
               {booking.status}
             </Badge>
-            {booking.payment?.status === 'SUCCESS' && (
-              <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
+
+            {isPaid ? (
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md">
                 Paid
               </span>
-            )}
-            {booking.payment?.status === 'REFUNDED' && (
-              <span className="text-[11px] font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-md">
+            ) : isPaymentFailed ? (
+              <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-md">
+                Payment Failed
+              </span>
+            ) : isPaymentPending ? (
+              <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-md">
+                Payment Pending
+              </span>
+            ) : null}
+
+            {paymentStatus === 'REFUNDED' && (
+              <span className="text-[11px] font-bold text-purple-700 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded-md">
                 Refunded
               </span>
             )}
@@ -100,7 +123,7 @@ export default function BookingCard({ booking, onViewPass, onCancelBooking }) {
           {booking.token && (
             <div className="col-span-2 pt-2 border-t border-slate-200/60 flex items-center justify-between">
               <div>
-                <p className="text-[10px] text-slate-400 uppercase font-semibold">Entry Code</p>
+                <p className="text-[10px] text-slate-400 uppercase font-semibold">Turnstile Entry Code</p>
                 <p className="font-mono text-sm font-black text-slate-900 tracking-wider">
                   {booking.token}
                 </p>
@@ -119,27 +142,59 @@ export default function BookingCard({ booking, onViewPass, onCancelBooking }) {
       </div>
 
       {/* Action Footer */}
-      <div className="flex items-center gap-2 pt-2">
-        <Button
-          variant="primary"
-          size="sm"
-          className="flex-1"
-          leftIcon={QrCode}
-          onClick={() => onViewPass?.(booking)}
-        >
-          View QR Pass
-        </Button>
+      <div className="flex flex-col gap-2 pt-2">
+        <div className="flex items-center gap-2">
+          {/* If pass is active, provide View QR Pass button */}
+          {isPaid && (
+            <Button
+              variant="primary"
+              size="sm"
+              className="flex-1"
+              leftIcon={QrCode}
+              onClick={() => onViewPass?.(booking)}
+            >
+              View QR Pass
+            </Button>
+          )}
 
-        {isCancellable && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-rose-600 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700"
-            onClick={() => onCancelBooking?.(booking)}
-          >
-            Cancel
-          </Button>
-        )}
+          {/* If payment pending or failed, provide Pay Now / Retry button */}
+          {isPaymentPending && (
+            <Button
+              variant="primary"
+              size="sm"
+              className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+              leftIcon={isPaymentFailed ? RotateCcw : CreditCard}
+              onClick={() => onRetryPayment?.(booking)}
+            >
+              {isPaymentFailed ? 'Retry Payment' : 'Complete Payment'}
+            </Button>
+          )}
+
+          {/* Official Printable Receipt Button */}
+          {isPaid && (
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={FileText}
+              onClick={() => onViewReceipt?.(booking)}
+              title="View Payment Receipt"
+            >
+              Receipt
+            </Button>
+          )}
+
+          {/* Cancel Booking Action */}
+          {isCancellable && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-rose-600 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700"
+              onClick={() => onCancelBooking?.(booking)}
+            >
+              Cancel
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

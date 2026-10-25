@@ -40,11 +40,13 @@ export const bookingsApi = {
   /**
    * Complete payment for booking (supports mock payment simulation in dev)
    * @param {string} bookingId
-   * @param {Object} payload - { paymentMethod, result: "SUCCESS" }
+   * @param {Object} payload - { paymentMethod, outcome: "SUCCESS" | "FAILED" }
    */
-  processPayment: async (bookingId, payload = { result: 'SUCCESS' }) => {
-    // In dev/test mode with mock payment enabled
-    const response = await apiClient.post(`/bookings/${bookingId}/payment/mock-result`, payload);
+  processPayment: async (bookingId, payload = { outcome: 'SUCCESS' }) => {
+    const outcome = payload.outcome || payload.result || 'SUCCESS';
+    const response = await apiClient.post(`/payments/${bookingId}/payment/mock-result`, {
+      outcome,
+    });
     return response.data;
   },
 };

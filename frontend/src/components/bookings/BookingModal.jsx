@@ -16,8 +16,8 @@ import {
 } from 'lucide-react';
 import Modal from '../common/Modal';
 import Button from '../common/Button';
-import Badge from '../common/Badge';
 import bookingsApi from '../../api/bookings.api';
+import paymentsApi from '../../api/payments.api';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { extractErrorMessage } from '../../utils/errors';
 import { useToast } from '../../hooks/useToast';
@@ -80,15 +80,28 @@ export default function BookingModal({ isOpen, onClose, toilet, onBookingSuccess
       const bookingRes = await bookingsApi.createBooking(payload);
       const bookingData = bookingRes?.data || bookingRes;
 
-      // 2. Process / Simulate payment confirmation
+      // 2. Safely initiate payment session on server
       try {
-        await bookingsApi.processPayment(bookingData.id, {
-          result: 'SUCCESS',
-          paymentMethod,
-        });
-        bookingData.status = 'CONFIRMED';
+        await paymentsApi.initiatePayment(bookingData.id, paymentMethod);
+
+        const isMockAllowed =
+          import.meta.env.VITE_ENABLE_MOCK_PAYMENT === 'true' ||
+          import.meta.env.MODE === 'development';
+
+        if (isMockAllowed) {
+          const simRes = await paymentsApi.simulateMockPayment(
+            bookingData.id,
+            'SUCCESS'
+          );
+          const verifiedPayment =
+            simRes?.data?.payment || simRes?.payment;
+          if (verifiedPayment?.paymentStatus === 'SUCCESS') {
+            bookingData.status = 'CONFIRMED';
+            bookingData.payment = verifiedPayment;
+          }
+        }
       } catch (payErr) {
-        console.warn('Payment simulation note:', payErr);
+        console.warn('Payment processing notice:', payErr);
       }
 
       setConfirmedBooking(bookingData);
