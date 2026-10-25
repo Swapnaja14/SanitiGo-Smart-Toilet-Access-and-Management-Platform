@@ -4,6 +4,7 @@ import validate from "../middleware/validate.middleware.js";
 import {
     registerSchema,
     loginSchema,
+    updateProfileSchema,
 } from "../validations/auth.validator.js";
 import authenticate from "../middleware/auth.js";
 import authorize from "../middleware/authorize.middleware.js";
@@ -46,6 +47,22 @@ router.get(
     authenticate,
     authorize(ROLES.USER, ROLES.OWNER, ROLES.ADMIN),
     authController.getCurrentUser
+);
+
+router.put(
+    "/profile",
+    authenticate,
+    authorize(ROLES.USER, ROLES.OWNER, ROLES.ADMIN),
+    validate(updateProfileSchema),
+    authController.updateProfile
+);
+
+router.patch(
+    "/profile",
+    authenticate,
+    authorize(ROLES.USER, ROLES.OWNER, ROLES.ADMIN),
+    validate(updateProfileSchema),
+    authController.updateProfile
 );
 
 export default router;

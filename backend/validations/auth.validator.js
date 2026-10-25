@@ -27,6 +27,11 @@ export const registerSchema = z.object({
             "Phone number must be a valid 10-digit Indian Mobile number"
         )
         .optional(),
+
+    role: z
+        .enum(["USER", "OWNER"])
+        .default("USER")
+        .optional(),
 });
 
 export const loginSchema = z.object({
@@ -41,5 +46,19 @@ export const loginSchema = z.object({
 
 export const refreshTokenSchema = z.object({
     refreshToken: z.string().min(1),
+});
+
+export const updateProfileSchema = z.object({
+    fullName: z
+        .string()
+        .trim()
+        .min(2, "Full name must be at least 2 characters")
+        .max(100, "Full name cannot exceed 100 characters")
+        .optional(),
+    phoneNumber: z
+        .string()
+        .regex(/^[6-9]\d{9}$/, "Phone number must be a valid 10-digit Indian Mobile number")
+        .optional(),
+    profileImage: z.string().url("Profile image must be a valid URL").optional().nullable(),
 });
 

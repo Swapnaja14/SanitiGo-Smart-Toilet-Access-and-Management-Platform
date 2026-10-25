@@ -15,6 +15,8 @@ import {
     getNearbyToilets,
     updateOperatingHours,
     updateAmenties,
+    getAllAmenities,
+    getOwnerBookings,
 } from "../src/controllers/toilet.controller.js";
 
 import upload from '../middleware/upload.middleware.js';
@@ -23,11 +25,20 @@ import { createToiletSchema, operatingHoursSchema, updateAmentitiesSchema, updat
 
 const router = express.Router();
 
+router.get("/amenities", getAllAmenities);
+router.get("/amenities/all", getAllAmenities);
+
 router.post("/create",
     authenticate,
     authorize("OWNER"),
     validate(createToiletSchema),
     createToilet
+);
+
+router.get("/owner/bookings",
+    authenticate,
+    authorize("OWNER"),
+    getOwnerBookings
 );
 
 router.get("/owner", 
