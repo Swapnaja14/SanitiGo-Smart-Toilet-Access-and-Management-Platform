@@ -17,6 +17,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import Button from '../common/Button';
 import Badge from '../common/Badge';
+import NotificationBell from '../notifications/NotificationBell';
 
 export default function Navbar() {
   const { user, isAuthenticated, isCustomer, isOwner, isAdmin, logout } = useAuth();
@@ -120,9 +121,11 @@ export default function Navbar() {
         {/* Right Section: Auth State / Profile */}
         <div className="hidden md:flex items-center gap-3">
           {isAuthenticated ? (
-            <div className="relative">
-              <button
-                type="button"
+            <>
+              <NotificationBell />
+              <div className="relative">
+                <button
+                  type="button"
                 onClick={() => setProfileDropdownOpen((prev) => !prev)}
                 className="flex items-center gap-2.5 p-1.5 pr-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all focus:outline-none focus:ring-2 focus:ring-brand-500/20"
               >
@@ -187,6 +190,14 @@ export default function Navbar() {
                   )}
 
                   <Link
+                    to="/notifications"
+                    className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-brand-600 transition-colors"
+                  >
+                    <Bell className="w-4 h-4 text-slate-400" />
+                    Notifications
+                  </Link>
+
+                  <Link
                     to="/profile"
                     className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-brand-600 transition-colors"
                   >
@@ -206,6 +217,7 @@ export default function Navbar() {
                 </div>
               )}
             </div>
+          </>
           ) : (
             <div className="flex items-center gap-2">
               <Link to="/login">
@@ -222,8 +234,9 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Mobile Hamburger Button */}
+        {/* Mobile Hamburger Button & Notifications */}
         <div className="flex md:hidden items-center gap-2">
+          {isAuthenticated && <NotificationBell isMobile />}
           <button
             onClick={() => setMobileMenuOpen((prev) => !prev)}
             className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
@@ -286,6 +299,14 @@ export default function Navbar() {
                     <p className="text-xs font-semibold text-slate-900">{user?.fullName}</p>
                     <p className="text-[11px] text-slate-500">{user?.email}</p>
                   </div>
+                  <Link
+                    to="/notifications"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg mb-1"
+                  >
+                    <Bell className="w-4 h-4 text-brand-600" />
+                    Notifications
+                  </Link>
                   <Link
                     to="/profile"
                     onClick={() => setMobileMenuOpen(false)}

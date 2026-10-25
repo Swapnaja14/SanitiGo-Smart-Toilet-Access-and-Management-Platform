@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
+import { NotificationProvider } from './context/NotificationContext';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 
@@ -14,6 +15,7 @@ import ToiletDetailPage from './pages/toilets/ToiletDetailPage';
 import CustomerDashboard from './pages/customer/CustomerDashboard';
 import OwnerDashboard from './pages/owner/OwnerDashboard';
 import AdminDashboard from './pages/admin/AdminDashboard';
+import NotificationsPage from './pages/notifications/NotificationsPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 export default function App() {
@@ -21,23 +23,32 @@ export default function App() {
     <BrowserRouter>
       <ToastProvider>
         <AuthProvider>
-          <Routes>
-            <Route element={<AppLayout />}>
-              {/* Public Routes */}
-              <Route path="/" element={<HomePage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
-              <Route path="/toilets/:id" element={<ToiletDetailPage />} />
+          <NotificationProvider>
+            <Routes>
+              <Route element={<AppLayout />}>
+                {/* Public Routes */}
+                <Route path="/" element={<HomePage />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
+                <Route path="/toilets/:id" element={<ToiletDetailPage />} />
 
-              {/* User Profile (Any Authenticated User) */}
-              <Route
-                path="/profile"
-                element={
-                  <ProtectedRoute>
-                    <ProfilePage />
-                  </ProtectedRoute>
-                }
-              />
+                {/* Notifications & User Profile (Any Authenticated User) */}
+                <Route
+                  path="/notifications"
+                  element={
+                    <ProtectedRoute>
+                      <NotificationsPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/profile"
+                  element={
+                    <ProtectedRoute>
+                      <ProfilePage />
+                    </ProtectedRoute>
+                  }
+                />
 
               {/* Customer Portal */}
               <Route
@@ -76,7 +87,8 @@ export default function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
-        </AuthProvider>
+        </NotificationProvider>
+      </AuthProvider>
       </ToastProvider>
     </BrowserRouter>
   );
