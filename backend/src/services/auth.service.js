@@ -53,7 +53,7 @@ class AuthService {
     // }
 
     async register(userData) {
-        const {fullName, email, password, phoneNumber} = userData;
+        const {fullName, email, password, phoneNumber, role} = userData;
         // Check if user already exists
         const existingUser = await userRepository.findByEmail(email);
         if (existingUser) {
@@ -66,6 +66,7 @@ class AuthService {
             email,
             password: hashedPassword,
             phoneNumber,
+            role: role === "OWNER" ? "OWNER" : "USER",
         });
         return await this.generateAuthTokens(user);
     }
@@ -146,6 +147,19 @@ class AuthService {
             throw new ApiError(404, "User not found");
         }
         return user;
+    }
+
+    async updateProfile(userId, { fullName, phoneNumber, profileImage }) {
+        const user = await userRepository.findById(userId);
+        if (!user) {
+            throw new ApiError(404, "User not found");
+        }
+        await userRepository.update(userId, {
+            fullName: fullName !== undefined ? fullName.trim() : undefined,
+            phoneNumber: phoneNumber !== undefined ? (phoneNumber?.trim() || null) : undefined,
+            profileImage: profileImage !== undefined ? profileImage : undefined,
+        });
+        return await userRepository.findSafeById(userId);
     }
 }
 

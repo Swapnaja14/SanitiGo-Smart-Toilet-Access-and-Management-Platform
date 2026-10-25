@@ -83,4 +83,15 @@ const getCurrentUser = asyncHandler(async (req, res) => {
     );
 });
 
-export default {register, login, refreshToken, logout, getCurrentUser};
+const updateProfile = asyncHandler(async (req, res) => {
+    const user = await authService.updateProfile(req.user.id, req.body);
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            user,
+            "Profile updated successfully"
+        )
+    );
+});
+
+export default {register, login, refreshToken, logout, getCurrentUser, updateProfile};
