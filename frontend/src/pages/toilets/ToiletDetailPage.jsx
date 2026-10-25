@@ -26,6 +26,7 @@ import { extractErrorMessage } from '../../utils/errors';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import BookingModal from '../../components/bookings/BookingModal';
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1200&q=80';
 
@@ -42,6 +43,7 @@ export default function ToiletDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -112,9 +114,7 @@ export default function ToiletDetailPage() {
       navigate('/login', { state: { from: { pathname: `/toilets/${id}` } } });
       return;
     }
-    // Proceed to booking flow (Part 4 will connect checkout modal)
-    success(`Selected ${toilet.name}! Redirecting to pass confirmation...`);
-    navigate('/customer/bookings', { state: { selectedToilet: toilet } });
+    setIsBookingModalOpen(true);
   };
 
   const handleShare = () => {
@@ -447,6 +447,16 @@ export default function ToiletDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Booking Checkout & Token Pass Modal */}
+      <BookingModal
+        isOpen={isBookingModalOpen}
+        onClose={() => setIsBookingModalOpen(false)}
+        toilet={toilet}
+        onBookingSuccess={() => {
+          // Booking confirmed, modal displays token pass
+        }}
+      />
     </div>
   );
 }
