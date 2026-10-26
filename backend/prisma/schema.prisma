@@ -140,6 +140,14 @@ model Notification {
   @@index([eventId])
 }
 
+model ProcessedEvent {
+  eventId     String   @id @map("event_id") @db.VarChar(100)
+  eventType   String   @map("event_type") @db.VarChar(150)
+  processedAt DateTime @default(now()) @map("processed_at") @db.Timestamptz
+
+  @@map("processed_event")
+}
+
 model Toilet {
   id             String           @id @default(cuid())
   ownerId        String
