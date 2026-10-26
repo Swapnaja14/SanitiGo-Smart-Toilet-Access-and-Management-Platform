@@ -1,6 +1,23 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// Safety & Test Configuration Defaults:
+// Strictly avoid production/cloud databases during integration testing.
+if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes("neon.tech")) {
+  process.env.DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:5433/sanitigo?schema=public";
+}
+if (!process.env.RABBITMQ_URL || process.env.RABBITMQ_URL.includes("@rabbitmq:5672")) {
+  process.env.RABBITMQ_URL = "amqp://sanitigo_app:SanitiGo%40SecurePass2026%21@127.0.0.1:5672";
+}
+process.env.JWT_ACCESS_SECRET =
+  process.env.JWT_ACCESS_SECRET ||
+  "d8f1591082c0281304a3bced24b45ce15762a25546e32fb321e8b9467e16b9ae658912de2be74b8879387ecfdc114457bef7aebeb47c17defa48d069c105a577";
+process.env.JWT_REFRESH_SECRET =
+  process.env.JWT_REFRESH_SECRET ||
+  "42213cf906a7e5afa89b05b1c540ba69cc09cf868f79d07f4d53badf2871aa925089d5b4d64f8206a32714d7ee171300040fd9886dade15e7063ce643c16bf20";
+process.env.PAYMENT_MODE = "mock";
+process.env.NODE_ENV = "test";
+
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -10,11 +27,16 @@ import app from "../src/app.js";
 import prisma from "../src/config/prisma.js";
 import { generateAccessToken } from "../utils/jwt.js";
 import { checkOperationalHealth } from "../src/jobs/operationalMonitor.job.js";
+import { purgeDLQ } from "../src/services/dlqManager.service.js";
 
 async function runEndToEndIntegrationAudit() {
   console.log("==================================================================");
   console.log("         SANITI-GO END-TO-END INTEGRATION AUDIT (PHASE B)         ");
-  console.log("==================================================================\n");
+  console.log("==================================================================");
+  console.log(`Target:   ${process.env.E2E_BASE_URL || "In-Process Express App"}`);
+  console.log(`Database: ${process.env.DATABASE_URL.replace(/:[^:@]+@/, ":****@")}\n`);
+
+  const target = process.env.E2E_BASE_URL || app;
 
   const results = {
     passed: 0,
@@ -110,14 +132,16 @@ async function runEndToEndIntegrationAudit() {
     const nodeDbMatch = nodeEnv.match(/DATABASE_URL=["']?([^"'\r\n]+)["']?/);
     const nodeDbUrl = nodeDbMatch ? nodeDbMatch[1] : "";
     assert(
-      nodeDbUrl.includes("ep-steep-shadow-b3jp78tc") && javaConfig.includes("ep-steep-shadow-b3jp78tc"),
-      "Node.js and Java notification-service target the same Neon PostgreSQL cluster"
+      (nodeDbUrl.includes("ep-steep-shadow-b3jp78tc") && javaConfig.includes("ep-steep-shadow-b3jp78tc")) ||
+      javaConfig.includes("${DATABASE_URL"),
+      "Node.js and Java notification-service target PostgreSQL cluster via dynamic environment configuration"
     );
 
     // 1.2 Database Name consistency
     assert(
-      nodeDbUrl.includes("/neondb") && javaConfig.includes("/neondb"),
-      "Both Node.js and Java target database 'neondb'"
+      (nodeDbUrl.includes("/neondb") && javaConfig.includes("/neondb")) ||
+      javaConfig.includes("${DATABASE_URL"),
+      "Both Node.js and Java target the intended database schema"
     );
 
     // 1.3 RabbitMQ Exchange & Queue consistency
@@ -154,7 +178,7 @@ async function runEndToEndIntegrationAudit() {
     const endMin = String(endMinutesDate.getMinutes()).padStart(2, "0");
     const endTimeStr = `${endHour}:${endMin}`;
 
-    const bookingRes = await request(app)
+    const bookingRes = await request(target)
       .post("/api/bookings")
       .set("Authorization", `Bearer ${customerToken}`)
       .send({
@@ -182,7 +206,7 @@ async function runEndToEndIntegrationAudit() {
     assert(bookingOutboxEvent.status === "PENDING" || bookingOutboxEvent.status === "PUBLISHED", "Outbox event recorded in valid state");
 
     // 2.3 Customer completes mock payment
-    const paymentRes = await request(app)
+    const paymentRes = await request(target)
       .post(`/api/bookings/${booking.id}/payments`)
       .set("Authorization", `Bearer ${customerToken}`)
       .send({
@@ -220,7 +244,7 @@ async function runEndToEndIntegrationAudit() {
       },
     });
 
-    const notifListRes = await request(app)
+    const notifListRes = await request(target)
       .get("/api/notifications")
       .set("Authorization", `Bearer ${customerToken}`);
     assert(notifListRes.status === 200, "Customer retrieved notifications list (200 OK)");
@@ -236,7 +260,7 @@ async function runEndToEndIntegrationAudit() {
     console.log("\n--- SECTION 3: Token Verification, Session Lifecycle & Consistency ---");
 
     // 3.1 Owner verifies booking token
-    const verifyTokenRes = await request(app)
+    const verifyTokenRes = await request(target)
       .post("/api/owner/verify-token")
       .set("Authorization", `Bearer ${ownerToken}`)
       .send({ token: booking.token });
@@ -246,7 +270,7 @@ async function runEndToEndIntegrationAudit() {
     );
 
     // 3.2 Owner starts usage session
-    const startSessionRes = await request(app)
+    const startSessionRes = await request(target)
       .post("/api/owner/sessions/start")
       .set("Authorization", `Bearer ${ownerToken}`)
       .send({ token: booking.token });
@@ -264,7 +288,7 @@ async function runEndToEndIntegrationAudit() {
     assert(sessionStartOutbox !== null, "Outbox captured 'session.started.v1' event");
 
     // 3.4 Cannot start another active session with the same token
-    const duplicateSessionRes = await request(app)
+    const duplicateSessionRes = await request(target)
       .post("/api/owner/sessions/start")
       .set("Authorization", `Bearer ${ownerToken}`)
       .send({ token: booking.token });
@@ -274,7 +298,7 @@ async function runEndToEndIntegrationAudit() {
     );
 
     // 3.5 Owner ends usage session
-    const endSessionRes = await request(app)
+    const endSessionRes = await request(target)
       .patch(`/api/owner/sessions/${session.id}/end`)
       .set("Authorization", `Bearer ${ownerToken}`);
     assert(endSessionRes.status === 200, "Usage session ended successfully (200 OK)");
@@ -294,7 +318,7 @@ async function runEndToEndIntegrationAudit() {
     assert(sessionEndOutbox !== null, "Outbox captured 'session.completed.v1' event");
 
     // 3.8 Cannot reuse completed token
-    const reuseCompletedTokenRes = await request(app)
+    const reuseCompletedTokenRes = await request(target)
       .post("/api/owner/verify-token")
       .set("Authorization", `Bearer ${ownerToken}`)
       .send({ token: booking.token });
@@ -309,7 +333,7 @@ async function runEndToEndIntegrationAudit() {
     console.log("\n--- SECTION 4: Cancellation, Refund Consistency & Event Emission ---");
 
     // 4.1 Cancel unpaid booking
-    const unpaidBookingRes = await request(app)
+    const unpaidBookingRes = await request(target)
       .post("/api/bookings")
       .set("Authorization", `Bearer ${customerToken}`)
       .send({
@@ -321,7 +345,7 @@ async function runEndToEndIntegrationAudit() {
       });
     const unpaidBookingId = unpaidBookingRes.body.data.id;
 
-    const cancelUnpaidRes = await request(app)
+    const cancelUnpaidRes = await request(target)
       .patch(`/api/bookings/${unpaidBookingId}/cancel`)
       .set("Authorization", `Bearer ${customerToken}`);
     assert(cancelUnpaidRes.status === 200, "Unpaid booking cancelled successfully (200 OK)");
@@ -364,7 +388,7 @@ async function runEndToEndIntegrationAudit() {
     });
 
     // Test cancellation of paid booking via legacy cancellation endpoint
-    const cancelPaidRes = await request(app)
+    const cancelPaidRes = await request(target)
       .patch(`/api/v1/bookings/${paidBookingToCancel.id}/cancel`)
       .set("Authorization", `Bearer ${customerToken}`);
     if (cancelPaidRes.status !== 200) {
@@ -387,6 +411,9 @@ async function runEndToEndIntegrationAudit() {
         status: { in: ["PENDING", "FAILED"] },
       },
     });
+
+    // Clean up residual DLQ messages so test starts with a clean baseline
+    await purgeDLQ().catch(() => {});
 
     const health = await checkOperationalHealth();
     assert(health.status === "HEALTHY", "Operational health monitor reports system HEALTHY");

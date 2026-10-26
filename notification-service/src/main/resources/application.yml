@@ -15,7 +15,7 @@ spring:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:sanitigo_app}
-    password: ${RABBITMQ_PASSWORD:SanitiGo@SecurePass2026!}
+    password: ${RABBITMQ_PASSWORD:}
     listener:
       simple:
         acknowledge-mode: auto
@@ -23,9 +23,9 @@ spring:
         prefetch: 10
 
   datasource:
-    url: ${DATABASE_URL:${JDBC_DATABASE_URL:jdbc:postgresql://ep-steep-shadow-b3jp78tc-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require}}
-    username: ${DATABASE_USERNAME:neondb_owner}
-    password: ${DATABASE_PASSWORD:npg_iQh3g9Etkros}
+    url: ${DATABASE_URL:${JDBC_DATABASE_URL:jdbc:postgresql://localhost:5433/sanitigo}}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
 
 sanitigo:
@@ -52,6 +52,10 @@ spring:
   config:
     activate:
       on-profile: prod
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
   rabbitmq:
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
