@@ -64,6 +64,9 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:sanitigo_app}
     password: ${RABBITMQ_PASSWORD:}
+    ssl:
+      enabled: ${RABBITMQ_SSL_ENABLED:false}
+
 
 ---
 spring:

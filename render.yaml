@@ -80,4 +80,7 @@ services:
     healthCheckPath: /
     envVars:
       - key: VITE_API_BASE_URL
-        value: /api/v1
+        value: https://sanitigo-backend-staging.onrender.com/api/v1
+      - key: VITE_ENABLE_MOCK_PAYMENT
+        value: "false"
+
