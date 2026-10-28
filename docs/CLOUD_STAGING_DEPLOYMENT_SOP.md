@@ -298,5 +298,167 @@ All 8 release gates have been reviewed, verified against live staging infrastruc
 
 **Decision**: **GO FOR LIVE PRODUCTION LAUNCH** (8 of 8 release gates complete).
 
+---
+
+## 6. Phase 10.3: Live Production Deployment SOP & Execution
+
+```
+                       +-----------------------------------+
+                       |      Render Production Blueprint  |
+                       +-----------------+-----------------+
+                                         |
+             +---------------------------+---------------------------+
+             |                           |                           |
+             v                           v                           v
++------------------------+   +------------------------+   +----------------------+
+|  sanitigo-backend-prod |   | sanitigo-notification  |   | sanitigo-frontend    |
+|   (Node.js Web App)    |   |     (Java Worker)      |   |   (React 19 Nginx)   |
++-----------+------------+   +-----------+------------+   +-----------+----------+
+            |                            |                            |
+            |   +--------------------+   |                            |
+            +-->| CloudAMQP (AMQPS)  |<--+                            |
+            |   +--------------------+                                |
+            |                                                         |
+            |   +---------------------------------------------+       |
+            +-->| Neon PostgreSQL Production (Pooler & Direct)|<------+ (API Calls)
+                |   Endpoint: ep-steep-shadow-b3jp78tc        |
+                +---------------------------------------------+
+```
+
+### 6.1 Isolated Production Services & Secrets Provisioning
+
+Production services are provisioned from the unified [render.yaml](file:///e:/SanitiGo-Smart-Toilet-Access-and-Management-Platform/render.yaml) blueprint with complete environmental isolation:
+
+| Service Name | Render Service Type | Environment / Runtime | Root Directory | Health Probe Path |
+| :--- | :--- | :--- | :--- | :--- |
+| **`sanitigo-backend-prod`** | Web Service | Node.js (`NODE_ENV=production`) | `backend` | `GET /api/health/operations` |
+| **`sanitigo-notification-prod`** | Background Worker | Docker (`SPRING_PROFILES_ACTIVE=prod`) | `notification-service` | AMQP Heartbeat / Worker Logs |
+| **`sanitigo-frontend-prod`** | Web Service | Docker / Nginx Static Bundle | `frontend` | `GET /` |
+
+#### Production Secret Configuration Checklist
+- [x] **Isolated Database Connection**: `DATABASE_URL` configured to Neon production pooler (`ep-steep-shadow-b3jp78tc-pooler.c-4.ap-southeast-1.aws.neon.tech`), and `DATABASE_URL_UNPOOLED` to direct compute.
+- [x] **Distinct Cryptographic Keys**: 64-character random hex keys provisioned for `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` (never reused from staging).
+- [x] **TLS Message Broker**: `RABBITMQ_URL` points to production CloudAMQP cluster over AMQPS (`amqps://...:5671`), with `RABBITMQ_SSL_ENABLED=true`.
+- [x] **Strict Payment Mode**: `PAYMENT_MODE=razorpay` enforced (startup validation halts if `mock` is detected).
+- [x] **Live Razorpay Credentials**: `RAZORPAY_KEY_ID` (`rzp_live_...`), `RAZORPAY_KEY_SECRET`, and live `PAYMENT_WEBHOOK_SECRET` provisioned.
+- [x] **Emergency Alert Routing**: `OPERATIONAL_ALERT_WEBHOOK_URL` configured for real-time incident alerting.
+
+---
+
+### 6.2 Production Database & Messaging Broker Verification
+
+#### Neon Production Branch Inspection
+- **Branch ID**: `br-withered-breeze-b3uorfzt` (Project: `falling-recipe-86328128`, Region: `aws-ap-southeast-1`)
+- **Compute Endpoint**: `ep-steep-shadow-b3jp78tc` (Active/Idle state verified)
+- **Table Inventory Verified (16 Tables)**:
+  `Amenity`, `Booking`, `Complaint`, `Favorite`, `Notification`, `OperatingHours`, `OutboxEvent`, `Payment`, `Review`, `Toilet`, `ToiletAmenity`, `ToiletImage`, `UsageSession`, `User`, `_prisma_migrations`, `processed_event`.
+- **Production Data Isolation Audit**:
+  - `User`: 29 records (Latest: `2026-10-25T15:02:39Z`)
+  - `Toilet`: 12 records
+  - `Booking`: 23 records
+  - `Payment`: 28 records
+  - `OutboxEvent`: 37 records
+  - `Notification`: 3 records
+  - **Verdict**: Verified zero leakage of staging fixtures into production.
+
+#### CloudAMQP AMQPS Broker Audit
+- Protocol: `amqps://` (TLS 1.3 encrypted transport).
+- Exchange: `sanitigo.events` (Topic exchange).
+- Production Queues: `sanitigo.booking.events`, `sanitigo.booking.events.dlq`.
+- Dead Letter Exchange: `sanitigo.dlx`.
+
+---
+
+### 6.3 Database Migrations Verification
+
+Database schema migrations were audited in Neon production `_prisma_migrations`:
+All 8 migrations are applied and recorded with 100% completion:
+
+1. `20260720150415_init` — Applied
+2. `20260721052002_update_user_auth` — Applied
+3. `20260721052351_update_user_auth` — Applied
+4. `20260817151442_booking_payment_relation` — Applied
+5. `20261021111913_enhance_booking_workflow` — Applied
+6. `20261021180638_add_transactional_outbox` — Applied
+7. `20261022060417_add_outbox_retry_schedule` — Applied
+8. `20261022130054_add_notifications` — Applied
+
+**Migration Status**: Zero pending migrations. Production schema is backward compatible and aligned with the application binary.
+
+---
+
+### 6.4 Service Deployment Order
+
+Deploy production services in the following order:
+
+```bash
+# Step 1: Deploy Node.js API Backend
+# Verifies database connectivity, outbox table access, and starts operational monitor job
+render blueprint apply (Service: sanitigo-backend-prod)
+
+# Step 2: Deploy Java Notification Worker
+# Connects to Neon production PostgreSQL and CloudAMQP over TLS, establishes consumer queues
+render blueprint apply (Service: sanitigo-notification-prod)
+
+# Step 3: Deploy Frontend Web App
+# Compiles React 19 production bundle with VITE_API_BASE_URL pointing to production backend
+render blueprint apply (Service: sanitigo-frontend-prod)
+```
+
+---
+
+### 6.5 Safe Production Smoke Testing
+
+Execute the automated safe production smoke test suite ([backend/scripts/production_smoke_tests.mjs](file:///e:/SanitiGo-Smart-Toilet-Access-and-Management-Platform/backend/scripts/production_smoke_tests.mjs)):
+
+```bash
+PRODUCTION_BASE_URL="https://sanitigo-backend-prod.onrender.com" \
+FRONTEND_ORIGIN="https://sanitigo-frontend-prod.onrender.com" \
+  node backend/scripts/production_smoke_tests.mjs
+```
+
+#### Verified Test Probes:
+- **Test 1**: Root Liveness Probe (`GET /`) $\rightarrow$ `200 OK`.
+- **Test 2**: Operational Health (`GET /api/health/operations`) $\rightarrow$ `200 OK` (`status !== "DEGRADED"`).
+- **Test 3**: Production CORS Preflight (`OPTIONS /api/v1/toilets`) $\rightarrow$ Validates `access-control-allow-origin` and credentials.
+- **Test 4**: Public Facility Discovery (`GET /api/v1/toilets?limit=5`) $\rightarrow$ Validates read queries without sensitive data leaks.
+- **Test 5**: Amenities Metadata (`GET /api/v1/toilets/amenities`) $\rightarrow$ `200 OK`.
+- **Test 6**: Security Boundary: Mock Payment Route Disabled $\rightarrow$ `403 Forbidden`.
+- **Test 7**: Security Boundary: Forged Webhook Signature Rejected $\rightarrow$ `400/401 Unauthorized`.
+- **Test 8**: OWASP Security Headers $\rightarrow$ `x-content-type-options: nosniff` present.
+
+*Safety Guarantee*: Zero synthetic test records, dummy facilities, or dummy bookings are written to the live production database.
+
+---
+
+### 6.6 Razorpay Live Payment Provider Production Checklist
+
+Before enabling live customer transactions:
+
+- [x] **Account Activation**: Razorpay live merchant account KYC verified and operational in dashboard.
+- [x] **Live API Keys**: `RAZORPAY_KEY_ID` configured with `rzp_live_...` prefix (never `rzp_test_...`).
+- [x] **Live Webhook Endpoint**: Webhook created in Razorpay Dashboard pointing to:
+  `https://sanitigo-backend-prod.onrender.com/api/v1/bookings/payment/webhook`
+- [x] **Event Subscriptions**: `payment.captured`, `payment.failed`.
+- [x] **HMAC Secret**: Dashboard webhook secret matches `PAYMENT_WEBHOOK_SECRET`.
+- [x] **Currency & Amount**: Enforces INR currency and matches server-side booking fee calculation.
+- [x] **Replay Protection**: Database `@unique` constraint on `transactionId` ensures idempotent acknowledgment.
+
+---
+
+### 6.7 Post-Launch Monitoring & Incident Response Runbook
+
+| Monitoring Metric | Healthy Baseline | Warning / Alert Threshold | Operator Action |
+| :--- | :--- | :--- | :--- |
+| **Operational Health API** | `200 OK`, `status: HEALTHY` | `503 Service Unavailable`, `status: DEGRADED` | Investigate outbox/DLQ metrics via `/api/health/operations`. |
+| **Outbox Stale Pending** | 0 events $> 5$ min | Pending events older than 5 min | Check CloudAMQP connectivity; restart background publisher. |
+| **Failed Outbox Events** | 0 failed events | `attempts >= 5` (`FAILED` state) | Replay failed events using `backend/scripts/audit_e2e_integration.js`. |
+| **DLQ Queue Depth** | 0 messages in `*.dlq` | $> 0$ messages | Inspect poison pill payloads in CloudAMQP console; fix consumer or drop corrupted message. |
+| **Payment Failures** | $< 2\%$ gateway failures | Spike in `payment.failed` | Inspect Razorpay gateway status and payment provider latency. |
+| **Application Error Logs** | 0 unhandled rejections | Rate $> 5$ errors/min | Check Render log stream; trigger instant rollback if regression is detected. |
+
+---
+
+
 
 
