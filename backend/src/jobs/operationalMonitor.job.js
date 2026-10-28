@@ -71,10 +71,32 @@ export async function checkOperationalHealth() {
     );
   }
 
+  const isDegraded = failedEvents.length > 0 || dlqDepth > 0;
+
+  // Direct Operator Alert Dispatch (Webhook / PagerDuty / Slack)
+  if (isDegraded && process.env.OPERATIONAL_ALERT_WEBHOOK_URL) {
+    try {
+      fetch(process.env.OPERATIONAL_ALERT_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          alert: "CRITICAL_PLATFORM_HEALTH_DEGRADED",
+          timestamp: new Date().toISOString(),
+          failedEventsCount: failedEvents.length,
+          dlqDepth,
+          stalePendingCount: stalePendingEvents.length,
+          failedEventIds: failedEvents.map((e) => e.id),
+        }),
+      }).catch((err) => logger.warn(`[AlertWebhook] Failed to send operator alert: ${err.message}`));
+    } catch (dispatchErr) {
+      logger.warn(`[AlertWebhook] Dispatch error: ${dispatchErr.message}`);
+    }
+  }
+
   return {
     timestamp: new Date().toISOString(),
     status:
-      failedEvents.length > 0 || dlqDepth > 0
+      isDegraded
         ? "DEGRADED"
         : stalePendingEvents.length > 0
         ? "WARNING"

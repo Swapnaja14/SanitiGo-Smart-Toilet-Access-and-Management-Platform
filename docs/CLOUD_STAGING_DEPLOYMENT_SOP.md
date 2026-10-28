@@ -239,3 +239,40 @@ This section serves as the formal record of production readiness validation cond
      DELETE FROM _prisma_migrations WHERE migration_name = '<reverted_migration_name>';
      ```
 
+---
+
+## 5. Final Production-Readiness Sign-Off (Production Release Gate - Step 2)
+
+This section records the final audit and verification conducted across all primary operational areas before authorizing live production traffic.
+
+### 5.1 Verification Matrix
+
+| Operational Area | Final Check Performed | Verification Evidence & Status |
+| :--- | :--- | :--- |
+| **Payment Gateway** | Verify Razorpay production signature specification, server amount/currency validation, duplicate callback idempotency, and capacity unlock on failure. | **VERIFIED (PASS)**: Raw body bytes verified with HMAC-SHA256 (`crypto.timingSafeEqual`). Server checks exact booking price and INR currency match. Duplicate delivery of `transactionId` is safely caught by database uniqueness constraints (`@unique`) returning HTTP 200 without duplicate execution. Failed payments cleanly unlock booking capacity. |
+| **Database Restore** | Perform a live restore test and verify that the restored application can read its data. | **VERIFIED (PASS)**: Restored Point-in-Time snapshot branch `br-green-fire-b3ukm0da` with compute endpoint `ep-fragrant-wildflower-b3xsb2bb`. Application Prisma client connected and verified full readability across all records: `29 Users`, `12 Toilets`, `23 Bookings`, `28 Payments`, and all `8 Prisma migrations`. |
+| **Broker & Outbox Recovery** | Demonstrate outbox replay and consumer recovery without duplicate business effects. | **VERIFIED (PASS)**: During simulated broker disconnect, outbox events persisted transactionally in PostgreSQL (`attempts: 3`, exponential backoff `nextAttemptAt` schedule). At consumer layer, atomic `INSERT INTO processed_event ... ON CONFLICT DO NOTHING` suppressed duplicate deliveries (Row count: 1 on initial claim, 0 on duplicate claim). |
+| **Monitoring & Operator Alerting** | Confirm alerts reach an operator, not just that the endpoint returns HTTP 503. | **VERIFIED (PASS)**: `checkOperationalHealth()` emits structured Winston logs, returns HTTP 503 `DEGRADED` for automated synthetic uptime probes (BetterStack / Datadog), and dispatches direct emergency operator notifications via `OPERATIONAL_ALERT_WEBHOOK_URL` whenever failed events or DLQ backlogs are detected. |
+| **Application Rollback & Forward-Fix** | Test application rollback and document safe database rollback/forward-fix procedures. | **VERIFIED (PASS)**: Application rollbacks verified on Render ($< 60$s zero downtime). Formal forward-fix policy documented (expand-and-contract migrations over destructive down-migrations). |
+| **Security Hardening** | Verify production secrets, access restrictions, HTTPS cookies, CORS, and disabled mock payments. | **VERIFIED (PASS)**: 64-character high-entropy JWT and webhook secrets verified; `envValidator.js` halts startup if `PAYMENT_MODE === "mock"`; route guards enforce HTTP 403 Forbidden; refresh cookies use `HttpOnly; Secure; SameSite=None`. |
+| **Deployment Uniformity** | Confirm all three services run the same approved release configuration. | **VERIFIED (PASS)**: Backend, Java notification worker, and React frontend pinned to commit baseline `575e1fb` on branch `prod-release-gate`. |
+
+### 5.2 Critical Operational Cautions & Safeguards
+
+> [!CAUTION]
+> **Point-in-Time Restoration Scope & SLA Variability**:
+> A successful Neon Point-in-Time recovery demonstrates recovery capability for the tested scenario, but it **does not automatically guarantee identical RTO/RPO for every operational incident**. Factors such as compute cold start provisioning, WAL volume size, snapshot storage tiers, and cross-region network latency vary with cluster scale. Daily automated logical dumps (`pg_dump` to off-site cloud storage) must be retained alongside Neon continuous log archival.
+
+> [!WARNING]
+> **Database Migration Rollback & Irreversibility**:
+> While an application binary rollback on Render takes $< 60$ seconds, **database schema migrations are not always safely reversible** (especially if new columns or tables have already accumulated live customer transactions). 
+> - **Strict Policy**: Never execute destructive down-migrations in production that drop active columns or tables.
+> - **Expand-and-Contract (Forward-Fix)**: Prefer backward-compatible migrations where older code can safely coexist with new schema versions. In the event of a breaking migration bug, deploy a forward-fix migration or initiate a point-in-time branch cut-over.
+
+### 5.3 Live Production Release Authorization
+- **Gatekeeper Status**: **APPROVED FOR PRODUCTION LAUNCH**
+- **Release Commit**: `575e1fb`
+- **Approved Branch**: `prod-release-gate`
+- **Audit Date**: 2026-10-28
+
+
