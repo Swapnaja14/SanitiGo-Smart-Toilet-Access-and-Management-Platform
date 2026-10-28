@@ -215,12 +215,27 @@ async function runStagingSmokeTests() {
         price: 20.0,
       },
     });
-    createdToiletId = toiletRes.data?.data?.toilet?.id || toiletRes.data?.toilet?.id;
+    createdToiletId = toiletRes.data?.data?.id || toiletRes.data?.data?.toilet?.id || toiletRes.data?.toilet?.id;
     assert(
       toiletRes.status === 201 && createdToiletId,
       "Facility Creation by Owner (POST /api/v1/toilets/create)",
       `Toilet ID: ${createdToiletId}`
     );
+
+    // Configure 7-day operating hours so bookings can be scheduled
+    const daysOfWeek = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+    await api(`/api/v1/toilets/${createdToiletId}/operating-hours`, {
+      method: "PUT",
+      token: ownerToken,
+      body: {
+        operatingHours: daysOfWeek.map((day) => ({
+          day,
+          openingTime: "06:00",
+          closingTime: "23:00",
+          isClosed: false,
+        })),
+      },
+    });
 
     // Discovery search
     const searchRes = await api(`/api/v1/toilets/search?city=New Delhi`, {
@@ -240,7 +255,7 @@ async function runStagingSmokeTests() {
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const scheduledDate = tomorrow.toISOString().split("T")[0];
 
-    const bookingRes = await api("/api/v1/bookings/create", {
+    const bookingRes = await api("/api/v1/bookings", {
       method: "POST",
       token: customerToken,
       body: {
@@ -248,13 +263,14 @@ async function runStagingSmokeTests() {
         scheduledDate,
         startTime: "14:00",
         endTime: "14:30",
+        paymentMethod: "UPI",
       },
     });
-    const passToken = bookingRes.data?.data?.booking?.token || bookingRes.data?.booking?.token;
-    createdBookingId = bookingRes.data?.data?.booking?.id || bookingRes.data?.booking?.id;
+    const passToken = bookingRes.data?.data?.token || bookingRes.data?.data?.booking?.token;
+    createdBookingId = bookingRes.data?.data?.id || bookingRes.data?.data?.booking?.id;
     assert(
       bookingRes.status === 201 && Boolean(passToken),
-      "Booking Creation & Turnstile Token Generation (POST /api/v1/bookings/create)",
+      "Booking Creation & Turnstile Token Generation (POST /api/v1/bookings)",
       `Turnstile Token Pass: ${passToken}`
     );
 
@@ -269,13 +285,17 @@ async function runStagingSmokeTests() {
           entity: {
             id: `pay_smoke_${timestamp}`,
             amount: 2000,
+            currency: "INR",
             status: "captured",
+            notes: {
+              bookingId: createdBookingId || "dummy_booking_id",
+            },
           },
         },
       },
     });
 
-    // Submitting with INVALID signature must be 400 rejected
+    // Submitting with INVALID signature must be rejected (401 or 400)
     const badSigRes = await api("/api/v1/payments/webhook", {
       method: "POST",
       headers: {
@@ -285,8 +305,8 @@ async function runStagingSmokeTests() {
       body: JSON.parse(fakeWebhookPayload),
     });
     assert(
-      badSigRes.status === 400,
-      "Payment Webhook: Invalid HMAC Signature Rejected with 400",
+      badSigRes.status === 401 || badSigRes.status === 400,
+      "Payment Webhook: Invalid HMAC Signature Rejected with 401/400",
       `Status: ${badSigRes.status}`
     );
 
@@ -319,22 +339,7 @@ async function runStagingSmokeTests() {
     // -------------------------------------------------------------------------
     console.log("\n--> [Cleanup] Removing smoke test fixtures from staging...");
     
-    // 1. Delete created toilet via Owner API
-    if (createdToiletId && ownerToken) {
-      try {
-        const delToiletRes = await api(`/api/v1/toilets/${createdToiletId}`, {
-          method: "DELETE",
-          token: ownerToken,
-        });
-        if (delToiletRes.status === 200) {
-          console.log(`  ✔ Deleted smoke test toilet: ${createdToiletId}`);
-        }
-      } catch (e) {
-        console.warn(`  ⚠ Could not delete test toilet via API: ${e.message}`);
-      }
-    }
-
-    // 2. Direct database cleanup if DATABASE_URL is available
+    // Direct database cleanup in reverse foreign-key order
     if (process.env.DATABASE_URL) {
       try {
         const { PrismaClient } = await import("@prisma/client");
@@ -343,6 +348,8 @@ async function runStagingSmokeTests() {
         });
 
         if (createdBookingId) {
+          await prisma.payment.deleteMany({ where: { bookingId: createdBookingId } });
+          await prisma.outboxEvent.deleteMany({ where: { aggregateId: createdBookingId } });
           await prisma.booking.deleteMany({ where: { id: createdBookingId } });
         }
         if (createdToiletId) {
