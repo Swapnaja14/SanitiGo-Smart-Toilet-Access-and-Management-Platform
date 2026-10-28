@@ -82,4 +82,6 @@ spring:
     addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_URL:}}
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
+    ssl:
+      enabled: ${RABBITMQ_SSL_ENABLED:true}
 

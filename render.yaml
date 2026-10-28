@@ -68,7 +68,7 @@ services:
         sync: false
 
   # ---------------------------------------------------------------------------
-  # 3. React 19 Frontend (Static Site or Web Service with Nginx)
+  # 3. React 19 Frontend (Static Site or Web Service with Nginx) - Staging
   # ---------------------------------------------------------------------------
   - type: web
     name: sanitigo-frontend-staging
@@ -81,6 +81,99 @@ services:
     envVars:
       - key: VITE_API_BASE_URL
         value: https://sanitigo-backend-staging.onrender.com/api/v1
+      - key: VITE_ENABLE_MOCK_PAYMENT
+        value: "false"
+
+  # ===========================================================================
+  # PRODUCTION SERVICES (Isolated Infrastructure & Production Secrets)
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # 4. Node.js Express API Backend (Web Service) - Production
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sanitigo-backend-prod
+    env: node
+    region: singapore
+    plan: starter
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate
+    startCommand: node src/server.js
+    healthCheckPath: /api/health/operations
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: RABBITMQ_URL
+        sync: false
+      - key: RABBITMQ_EXCHANGE
+        value: sanitigo.events
+      - key: PAYMENT_MODE
+        value: razorpay
+      - key: PAYMENT_WEBHOOK_SECRET
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: OPERATIONAL_ALERT_WEBHOOK_URL
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # 5. Java Spring Boot Notification Consumer Service (Background Worker) - Production
+  # ---------------------------------------------------------------------------
+  - type: worker
+    name: sanitigo-notification-prod
+    env: docker
+    region: singapore
+    plan: starter
+    rootDir: notification-service
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+      - key: RABBITMQ_SSL_ENABLED
+        value: "true"
+
+  # ---------------------------------------------------------------------------
+  # 6. React 19 Frontend Web Service (Production)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sanitigo-frontend-prod
+    env: docker
+    region: singapore
+    plan: starter
+    rootDir: frontend
+    dockerfilePath: Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://sanitigo-backend-prod.onrender.com/api/v1
       - key: VITE_ENABLE_MOCK_PAYMENT
         value: "false"
 
