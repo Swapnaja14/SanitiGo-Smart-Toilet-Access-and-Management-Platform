@@ -4,15 +4,23 @@ import crypto from "crypto";
 /**
  * SanitiGo Phase 10.2: Cloud Staging Smoke Test Suite
  * Validates the live staging deployment across all layers.
+ * 
+ * Environment variables:
+ * - STAGING_BASE_URL / STAGING_API_URL: Deployed backend URL (e.g. https://sanitigo-backend-staging.onrender.com)
+ * - FRONTEND_ORIGIN: Deployed frontend origin (e.g. https://sanitigo-frontend-staging.onrender.com)
+ * - PAYMENT_WEBHOOK_SECRET: Staging payment webhook secret
+ * - DATABASE_URL: Optional direct staging database connection for post-test cleanup
  */
 
-const BASE_URL = process.env.STAGING_API_URL || process.env.BASE_URL || "http://localhost:5000";
+const BASE_URL = process.env.STAGING_BASE_URL || process.env.STAGING_API_URL || process.env.BASE_URL || "http://localhost:5000";
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "https://sanitigo-frontend-staging.onrender.com";
 const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || "whsec_staging_hmac_secret_minimum_32_characters";
 
 console.log("===============================================================");
 console.log("       SANITI-GO PHASE 10.2: STAGING SMOKE TEST SUITE          ");
-console.log(`Target Staging URL: ${BASE_URL}`);
-console.log(`Execution Timestamp: ${new Date().toISOString()}`);
+console.log(`Target Staging Backend: ${BASE_URL}`);
+console.log(`Target Frontend Origin: ${FRONTEND_ORIGIN}`);
+console.log(`Execution Timestamp:    ${new Date().toISOString()}`);
 console.log("===============================================================\n");
 
 let passedCount = 0;
@@ -55,15 +63,18 @@ async function api(path, { method = "GET", body, token, headers = {} } = {}) {
 
 async function runStagingSmokeTests() {
   const timestamp = Date.now();
+  let customerId = null;
+  let ownerId = null;
   let customerToken = null;
   let ownerToken = null;
   let createdToiletId = null;
+  let createdBookingId = null;
 
   try {
     // -------------------------------------------------------------------------
     // TEST 1: Service Liveness & Operational Health Check
     // -------------------------------------------------------------------------
-    console.log("\n--> 1. Checking Service Liveness & Operational Health...");
+    console.log("--> 1. Checking Service Liveness & Operational Health...");
     const rootRes = await api("/");
     assert(
       rootRes.status === 200 && rootRes.data?.success === true,
@@ -75,67 +86,107 @@ async function runStagingSmokeTests() {
     assert(
       healthRes.status === 200 || healthRes.status === 503,
       "Operational Diagnostics Endpoint (GET /api/health/operations)",
-      `Status: ${healthRes.status}, Status payload: ${healthRes.data?.status || healthRes.data?.overallStatus}`
+      `Status: ${healthRes.status}, Status payload: ${healthRes.data?.status || healthRes.data?.overallStatus || "OK"}`
     );
 
     // -------------------------------------------------------------------------
     // TEST 2: CORS Preflight & Security Headers
     // -------------------------------------------------------------------------
-    console.log("\n--> 2. Verifying CORS Preflight & Credentials Policy...");
+    console.log("\n--> 2. Verifying CORS Preflight & Credentials Policy from Frontend Origin...");
     const corsRes = await fetch(`${BASE_URL}/api/v1/toilets`, {
       method: "OPTIONS",
       headers: {
-        Origin: "https://staging.sanitigo.com",
+        Origin: FRONTEND_ORIGIN,
         "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "Content-Type,Authorization",
       },
     });
+    const allowOrigin = corsRes.headers.get("access-control-allow-origin");
     assert(
-      corsRes.status === 204 || corsRes.status === 200,
+      (corsRes.status === 204 || corsRes.status === 200) && (allowOrigin === FRONTEND_ORIGIN || allowOrigin === "*"),
       "CORS Preflight Response (OPTIONS /api/v1/toilets)",
-      `Status: ${corsRes.status}, Allow-Origin: ${corsRes.headers.get("access-control-allow-origin")}`
+      `Status: ${corsRes.status}, Allow-Origin: ${allowOrigin}, Origin Tested: ${FRONTEND_ORIGIN}`
     );
 
     // -------------------------------------------------------------------------
-    // TEST 3: User Authentication & Role Safeguards
+    // TEST 3: User & Owner Registration and Login (RBAC Isolation)
     // -------------------------------------------------------------------------
-    console.log("\n--> 3. Testing Authentication & RBAC Isolation...");
+    console.log("\n--> 3. Testing Authentication (Register & Login) and RBAC Protection...");
+    
+    // 3a. Customer Registration
     const customerEmail = `smoke_customer_${timestamp}@staging.sanitigo.com`;
+    const customerPassword = "SmokePassword@2026";
     const custRegRes = await api("/api/v1/auth/register", {
       method: "POST",
       body: {
         fullName: "Smoke Customer",
         email: customerEmail,
-        password: "SmokePassword@2026",
+        password: customerPassword,
         phoneNumber: `98${String(timestamp).slice(-8)}`,
         role: "USER",
       },
     });
-    assert(
-      custRegRes.status === 201 && (custRegRes.data?.data?.accessToken || custRegRes.data?.accessToken),
-      "Customer Registration on Staging (POST /api/v1/auth/register)",
-      `User ID: ${custRegRes.data?.data?.user?.id || custRegRes.data?.user?.id}`
-    );
+    customerId = custRegRes.data?.data?.user?.id || custRegRes.data?.user?.id;
     customerToken = custRegRes.data?.data?.accessToken || custRegRes.data?.accessToken;
+    assert(
+      custRegRes.status === 201 && customerToken,
+      "Customer Registration on Staging (POST /api/v1/auth/register)",
+      `User ID: ${customerId}`
+    );
 
+    // 3b. Customer Login
+    const custLoginRes = await api("/api/v1/auth/login", {
+      method: "POST",
+      body: {
+        email: customerEmail,
+        password: customerPassword,
+      },
+    });
+    const loginAccessToken = custLoginRes.data?.data?.accessToken || custLoginRes.data?.accessToken;
+    assert(
+      custLoginRes.status === 200 && Boolean(loginAccessToken),
+      "Customer Login Verification (POST /api/v1/auth/login)",
+      `Status: ${custLoginRes.status}, Token received: ${Boolean(loginAccessToken)}`
+    );
+    if (loginAccessToken) customerToken = loginAccessToken;
+
+    // 3c. Owner Registration & Login
     const ownerEmail = `smoke_owner_${timestamp}@staging.sanitigo.com`;
+    const ownerPassword = "SmokePassword@2026";
     const ownerRegRes = await api("/api/v1/auth/register", {
       method: "POST",
       body: {
         fullName: "Smoke Owner",
         email: ownerEmail,
-        password: "SmokePassword@2026",
+        password: ownerPassword,
         phoneNumber: `97${String(timestamp).slice(-8)}`,
         role: "OWNER",
       },
     });
-    assert(
-      ownerRegRes.status === 201 && (ownerRegRes.data?.data?.accessToken || ownerRegRes.data?.accessToken),
-      "Facility Owner Registration on Staging (POST /api/v1/auth/register)",
-      `Owner ID: ${ownerRegRes.data?.data?.user?.id || ownerRegRes.data?.user?.id}`
-    );
+    ownerId = ownerRegRes.data?.data?.user?.id || ownerRegRes.data?.user?.id;
     ownerToken = ownerRegRes.data?.data?.accessToken || ownerRegRes.data?.accessToken;
+    assert(
+      ownerRegRes.status === 201 && ownerToken,
+      "Facility Owner Registration on Staging (POST /api/v1/auth/register)",
+      `Owner ID: ${ownerId}`
+    );
 
-    // RBAC: Customer attempting admin route must be 403 Forbidden
+    const ownerLoginRes = await api("/api/v1/auth/login", {
+      method: "POST",
+      body: {
+        email: ownerEmail,
+        password: ownerPassword,
+      },
+    });
+    const ownerLoginToken = ownerLoginRes.data?.data?.accessToken || ownerLoginRes.data?.accessToken;
+    assert(
+      ownerLoginRes.status === 200 && Boolean(ownerLoginToken),
+      "Facility Owner Login Verification (POST /api/v1/auth/login)",
+      `Status: ${ownerLoginRes.status}`
+    );
+    if (ownerLoginToken) ownerToken = ownerLoginToken;
+
+    // 3d. RBAC: Non-admin customer blocked from admin console
     const forbiddenRes = await api("/api/v1/admin/stats", {
       token: customerToken,
     });
@@ -164,19 +215,22 @@ async function runStagingSmokeTests() {
         price: 20.0,
       },
     });
-    assert(
-      toiletRes.status === 201 && (toiletRes.data?.data?.toilet?.id || toiletRes.data?.toilet?.id),
-      "Facility Creation by Owner (POST /api/v1/toilets/create)",
-      `Toilet ID: ${toiletRes.data?.data?.toilet?.id || toiletRes.data?.toilet?.id}`
-    );
     createdToiletId = toiletRes.data?.data?.toilet?.id || toiletRes.data?.toilet?.id;
+    assert(
+      toiletRes.status === 201 && createdToiletId,
+      "Facility Creation by Owner (POST /api/v1/toilets/create)",
+      `Toilet ID: ${createdToiletId}`
+    );
 
     // Discovery search
-    const searchRes = await api(`/api/v1/toilets/search?city=New Delhi`);
+    const searchRes = await api(`/api/v1/toilets/search?city=New Delhi`, {
+      token: customerToken,
+    });
+    const toiletsList = searchRes.data?.data?.toilets || searchRes.data?.toilets || [];
     assert(
-      searchRes.status === 200 && Array.isArray(searchRes.data?.data?.toilets || searchRes.data?.toilets),
+      searchRes.status === 200 && Array.isArray(toiletsList),
       "Facility Discovery Search by City (GET /api/v1/toilets/search)",
-      `Results count: ${(searchRes.data?.data?.toilets || searchRes.data?.toilets || []).length}`
+      `Results count: ${toiletsList.length}`
     );
 
     // -------------------------------------------------------------------------
@@ -196,10 +250,12 @@ async function runStagingSmokeTests() {
         endTime: "14:30",
       },
     });
+    const passToken = bookingRes.data?.data?.booking?.token || bookingRes.data?.booking?.token;
+    createdBookingId = bookingRes.data?.data?.booking?.id || bookingRes.data?.booking?.id;
     assert(
-      bookingRes.status === 201 && (bookingRes.data?.data?.booking?.token || bookingRes.data?.booking?.token),
+      bookingRes.status === 201 && Boolean(passToken),
       "Booking Creation & Turnstile Token Generation (POST /api/v1/bookings/create)",
-      `Token Pass: ${bookingRes.data?.data?.booking?.token || bookingRes.data?.booking?.token}`
+      `Turnstile Token Pass: ${passToken}`
     );
 
     // -------------------------------------------------------------------------
@@ -257,6 +313,53 @@ async function runStagingSmokeTests() {
   } catch (error) {
     console.error("Unexpected error during staging smoke tests:", error);
     failedCount++;
+  } finally {
+    // -------------------------------------------------------------------------
+    // CLEANUP: Clean up test records created by this smoke test script
+    // -------------------------------------------------------------------------
+    console.log("\n--> [Cleanup] Removing smoke test fixtures from staging...");
+    
+    // 1. Delete created toilet via Owner API
+    if (createdToiletId && ownerToken) {
+      try {
+        const delToiletRes = await api(`/api/v1/toilets/${createdToiletId}`, {
+          method: "DELETE",
+          token: ownerToken,
+        });
+        if (delToiletRes.status === 200) {
+          console.log(`  ✔ Deleted smoke test toilet: ${createdToiletId}`);
+        }
+      } catch (e) {
+        console.warn(`  ⚠ Could not delete test toilet via API: ${e.message}`);
+      }
+    }
+
+    // 2. Direct database cleanup if DATABASE_URL is available
+    if (process.env.DATABASE_URL) {
+      try {
+        const { PrismaClient } = await import("@prisma/client");
+        const prisma = new PrismaClient({
+          datasources: { db: { url: process.env.DATABASE_URL } },
+        });
+
+        if (createdBookingId) {
+          await prisma.booking.deleteMany({ where: { id: createdBookingId } });
+        }
+        if (createdToiletId) {
+          await prisma.toilet.deleteMany({ where: { id: createdToiletId } });
+        }
+        if (customerId) {
+          await prisma.user.deleteMany({ where: { id: customerId } });
+        }
+        if (ownerId) {
+          await prisma.user.deleteMany({ where: { id: ownerId } });
+        }
+        await prisma.$disconnect();
+        console.log("  ✔ Smoke test users & bookings cleaned up from database.");
+      } catch (err) {
+        console.warn(`  ⚠ Database cleanup notice: ${err.message}`);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
