@@ -20,14 +20,15 @@ frontend/dist/
 # Environment and secrets
 .env
 .env.*
-!.env.example
+!.env*.example
 .neon
 backend/.env
 backend/.env.test
 backend/.neon
 frontend/.env
 frontend/.env.*
-!frontend/.env.example
+!frontend/.env*.example
+
 
 # IDE / OS
 .vscode/

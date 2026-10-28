@@ -1,0 +1,86 @@
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Node.js Express API Backend (Web Service)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sanitigo-backend-staging
+    env: node
+    region: singapore
+    plan: starter
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate
+    startCommand: node src/server.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: staging
+      - key: PORT
+        value: 5000
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: RABBITMQ_URL
+        sync: false
+      - key: RABBITMQ_EXCHANGE
+        value: sanitigo.events
+      - key: PAYMENT_MODE
+        value: razorpay
+      - key: PAYMENT_WEBHOOK_SECRET
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: COOKIE_SAMESITE
+        value: none
+
+  # ---------------------------------------------------------------------------
+  # 2. Java Spring Boot Notification Consumer Service (Background Worker)
+  # ---------------------------------------------------------------------------
+  - type: worker
+    name: sanitigo-notification-staging
+    env: docker
+    region: singapore
+    plan: starter
+    rootDir: notification-service
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: staging
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # 3. React 19 Frontend (Static Site or Web Service with Nginx)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sanitigo-frontend-staging
+    env: docker
+    region: singapore
+    plan: starter
+    rootDir: frontend
+    dockerfilePath: Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://sanitigo-backend-staging.onrender.com/api/v1
+      - key: VITE_ENABLE_MOCK_PAYMENT
+        value: "false"
+

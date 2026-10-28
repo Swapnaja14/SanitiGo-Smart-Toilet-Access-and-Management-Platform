@@ -12,6 +12,7 @@ spring:
       mode: always
 
   rabbitmq:
+    addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_URL:}}
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:sanitigo_app}
@@ -51,11 +52,34 @@ spring:
 spring:
   config:
     activate:
+      on-profile: staging
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  rabbitmq:
+    addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_URL:}}
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:sanitigo_app}
+    password: ${RABBITMQ_PASSWORD:}
+    ssl:
+      enabled: ${RABBITMQ_SSL_ENABLED:false}
+
+
+---
+spring:
+  config:
+    activate:
       on-profile: prod
   datasource:
     url: ${DATABASE_URL}
     username: ${DATABASE_USERNAME}
     password: ${DATABASE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
   rabbitmq:
+    addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_URL:}}
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
+

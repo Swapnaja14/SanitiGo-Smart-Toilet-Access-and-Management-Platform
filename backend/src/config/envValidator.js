@@ -6,7 +6,7 @@ import logger from "./logger.js";
  */
 export function validateEnv() {
   const errors = [];
-  const isProd = process.env.NODE_ENV === "production";
+  const isStrictEnv = process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
 
   // 1. Core Server & Database Configuration
   if (!process.env.DATABASE_URL) {
@@ -41,14 +41,14 @@ export function validateEnv() {
     );
   }
 
-  // 3. Production Configuration Safeguards
-  if (isProd) {
+  // 3. Production & Staging Configuration Safeguards
+  if (isStrictEnv) {
     if (process.env.PAYMENT_MODE === "mock") {
-      errors.push("PAYMENT_MODE='mock' is strictly prohibited in production.");
+      errors.push("PAYMENT_MODE='mock' is strictly prohibited in production and staging.");
     }
     if (!process.env.PAYMENT_WEBHOOK_SECRET) {
       errors.push(
-        "PAYMENT_WEBHOOK_SECRET is required in production for verified payment processing."
+        "PAYMENT_WEBHOOK_SECRET is required in production and staging for verified payment processing."
       );
     }
   }
